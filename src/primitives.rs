@@ -560,29 +560,26 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
         }
     }
 
-    fn bool_if_true(self_val: &Value, args: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
+    fn bool_if_true(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
         if let (Value::Boolean(true), Some(Value::Block(b))) = (self_val, args.get(0)) {
-            interpreter.run_block(b.clone(), Vec::new())
+            Ok(ReturnValue::TailCall(Value::Block(b.clone()), "value".to_string(), Vec::new(), None))
         } else {
             Ok(ReturnValue::Value(Value::Nil))
         }
     }
 
-    fn bool_if_false(self_val: &Value, args: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
+    fn bool_if_false(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
         if let (Value::Boolean(false), Some(Value::Block(b))) = (self_val, args.get(0)) {
-            interpreter.run_block(b.clone(), Vec::new())
+            Ok(ReturnValue::TailCall(Value::Block(b.clone()), "value".to_string(), Vec::new(), None))
         } else {
             Ok(ReturnValue::Value(Value::Nil))
         }
     }
 
-    fn bool_if_true_if_false(self_val: &Value, args: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
+    fn bool_if_true_if_false(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
         if let (Value::Boolean(b), Some(Value::Block(true_block)), Some(Value::Block(false_block))) = (self_val, args.get(0), args.get(1)) {
-            if *b {
-                interpreter.run_block(true_block.clone(), Vec::new())
-            } else {
-                interpreter.run_block(false_block.clone(), Vec::new())
-            }
+            let target = if *b { true_block } else { false_block };
+            Ok(ReturnValue::TailCall(Value::Block(target.clone()), "value".to_string(), Vec::new(), None))
         } else {
             Ok(ReturnValue::Value(Value::Nil))
         }
@@ -632,9 +629,16 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
         Ok(ReturnValue::Restart)
     }
 
-    fn block_value(self_val: &Value, args: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
-        if let Value::Block(b) = self_val {
-            interpreter.run_block(b.clone(), args)
+    fn block_value(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        if let Value::Block(_b) = self_val {
+            let selector = match args.len() {
+                0 => "value",
+                1 => "value:",
+                2 => "value:with:",
+                3 => "value:with:with:",
+                _ => "value:with:with:with:", // unlikely but for completeness
+            };
+            Ok(ReturnValue::TailCall(self_val.clone(), selector.to_string(), args, None))
         } else {
             Ok(ReturnValue::Value(Value::Nil))
         }

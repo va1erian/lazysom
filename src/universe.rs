@@ -49,11 +49,40 @@ impl Universe {
         // Create stub to break recursion
         let stub_opt = self.globals.borrow().get(name).cloned();
         let stub = match stub_opt {
-            Some(Value::Class(cls)) => cls,
+            Some(Value::Class(cls)) => {
+                if cls.borrow().class.is_none() && name != "Metaclass" {
+                     let mc_name = format!("{} class", name);
+                     let mc = Rc::new(RefCell::new(SomClass {
+                        name: mc_name,
+                        class: Some(self.load_class("Metaclass")?),
+                        super_class: None, 
+                        instance_fields: Vec::new(),
+                        fields: Vec::new(),
+                        methods: HashMap::new(),
+                        method_order: Vec::new(),
+                     }));
+                     cls.borrow_mut().class = Some(mc);
+                }
+                cls
+            }
             _ => {
+                let mc_name = format!("{} class", name);
+                let mc = if name == "Metaclass" {
+                    None
+                } else {
+                    Some(Rc::new(RefCell::new(SomClass {
+                        name: mc_name,
+                        class: Some(self.load_class("Metaclass")?),
+                        super_class: None,
+                        instance_fields: Vec::new(),
+                        fields: Vec::new(),
+                        methods: HashMap::new(),
+                        method_order: Vec::new(),
+                    })))
+                };
                 let s = Rc::new(RefCell::new(SomClass {
                     name: name.to_string(),
-                    class: None,
+                    class: mc,
                     super_class: None,
                     instance_fields: Vec::new(),
                     fields: Vec::new(),
@@ -84,6 +113,7 @@ impl Universe {
                                 body: crate::object::MethodBody::Primitive(|_, _, _, _| Ok(crate::interpreter::ReturnValue::Value(Value::Nil))),
                             })));
                         }
+                        
                         let res = self.assemble_class_into(class_def, stub.clone());
                         if is_metaclass {
                             stub.borrow_mut().methods.remove("__loading__");
@@ -124,15 +154,22 @@ impl Universe {
         }
         all_instance_fields.extend(def.instance_fields);
 
-        // 1. Create Metaclass for this class
-        let mc_name = format!("{} class", def.name);
+        let existing_mc = cls.borrow().class.clone();
+
+        // 1. Get or Create Metaclass for this class
         let mc_super = if def.name == "Object" {
             Some(self.load_class("Class")?)
         } else if let Some(sc) = &super_class {
-            match &sc.borrow().class {
-                Some(c) => Some(c.clone()),
-                None => Some(self.load_class("Class")?),
-            }
+            let sc_name = sc.borrow().name.clone();
+            // Ensure the superclass itself is fully loaded so it has a class
+            let sc_fully_loaded = self.load_class(&sc_name)?;
+            let sc_borrow = sc_fully_loaded.borrow();
+            let res = if let Some(scc) = &sc_borrow.class {
+                Some(scc.clone())
+            } else {
+                Some(self.load_class("Class")?)
+            };
+            res
         } else {
             Some(self.load_class("Class")?)
         };
@@ -144,15 +181,27 @@ impl Universe {
         }
         all_class_fields.extend(def.class_fields);
 
-        let metaclass = Rc::new(RefCell::new(SomClass {
-            name: mc_name,
-            class: Some(self.load_class("Metaclass")?),
-            super_class: mc_super,
-            instance_fields: all_class_fields.clone(),
-            fields: vec![Value::Nil; all_class_fields.len()],
-            methods: std::collections::HashMap::new(),
-            method_order: Vec::new(),
-        }));
+        let metaclass = if let Some(mc) = existing_mc {
+            {
+                let mut mc_mut = mc.borrow_mut();
+                mc_mut.super_class = mc_super.clone();
+                mc_mut.instance_fields = all_class_fields.clone();
+                mc_mut.fields = vec![Value::Nil; all_class_fields.len()];
+            }
+            mc
+        } else {
+            let mc_name = format!("{} class", def.name);
+            Rc::new(RefCell::new(SomClass {
+                name: mc_name,
+                class: Some(self.load_class("Metaclass")?),
+                super_class: mc_super.clone(),
+                instance_fields: all_class_fields.clone(),
+                fields: vec![Value::Nil; all_class_fields.len()],
+                methods: std::collections::HashMap::new(),
+                method_order: Vec::new(),
+            }))
+        };
+
 
         // 2. Update the Class stub
         {
@@ -161,7 +210,6 @@ impl Universe {
             cls_mut.super_class = super_class.clone();
             cls_mut.instance_fields = all_instance_fields;
             cls_mut.fields = vec![Value::Nil; all_class_fields.len()];
-            // println!("DEBUG: Assembled class {} with superclass {:?}", cls_mut.name, cls_mut.super_class.as_ref().map(|sc| sc.borrow().name.clone()));
         }
 
         // 3. Assemble methods

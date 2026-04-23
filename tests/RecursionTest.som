@@ -1,0 +1,35 @@
+RecursionTest = TestCase (
+    recursiveCount: n = (
+        n = 0 ifTrue: [ ^ 0 ].
+        ^ self recursiveCount: n - 1
+    )
+
+    testDeepRecursion = (
+        | result |
+        result := self recursiveCount: 100000.
+        self assert: 0 equals: result.
+    )
+
+    testBlockRecursion = (
+        | recursiveBlock result |
+        recursiveBlock := [ :n |
+            n = 0 ifTrue: [ 0 ] ifFalse: [ recursiveBlock value: n - 1 ]
+        ].
+        result := recursiveBlock value: 100000.
+        self assert: 0 equals: result.
+    )
+
+    run: args = (
+        self testDeepRecursion.
+        self testBlockRecursion.
+        ^ 0
+    )
+
+    tests = (
+        | tests |
+        tests := Vector new.
+        tests append: (self for: #testDeepRecursion).
+        tests append: (self for: #testBlockRecursion).
+        ^ tests
+    )
+)

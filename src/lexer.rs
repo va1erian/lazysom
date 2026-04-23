@@ -13,7 +13,7 @@ pub enum Token {
     #[token("=")]
     Equal,
 
-    #[regex(r"----(-*)")]
+    #[regex(r"----(-*)", priority = 2)]
     Separator,
 
     #[token("(")]
@@ -61,7 +61,7 @@ pub enum Token {
     #[token("%")]
     Per,
 
-    #[regex(r"[~&|*/\\+>=<@%!-]+", priority = 1)]
+    #[regex(r"[~&|*/\\+>=<@%!-]+", priority = 0)]
     OperatorSequence,
 
     #[token(":")]
