@@ -7,7 +7,6 @@ use std::cell::RefCell;
 
 pub struct Interpreter<'a> {
     pub universe: &'a Universe,
-    pub depth: std::cell::Cell<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -15,97 +14,164 @@ pub enum ReturnValue {
     Value(Value),
     NonLocalReturn(Value, SomRef<Activation>),
     Restart,
+    TailCall(Value, String, Vec<Value>, Option<SomRef<SomClass>>),
 }
 
 impl<'a> Interpreter<'a> {
     pub fn new(universe: &'a Universe) -> Self {
-        Self { universe, depth: std::cell::Cell::new(0) }
+        Self { universe }
     }
 
-    pub fn run_method_internal(&self, method: SomRef<SomMethod>, self_val: Value, args: Vec<Value>) -> Result<ReturnValue> {
-        let m_ref = method.borrow();
-        let body = m_ref.body.clone();
-        let parameters = m_ref.parameters.clone();
-        let holder = m_ref.holder.clone();
-        drop(m_ref);
+    pub fn dispatch_internal_with_super(&self, receiver: Value, selector: &str, args: Vec<Value>, super_class: Option<SomRef<SomClass>>) -> Result<ReturnValue> {
+        if let Some(cls) = super_class {
+            let method = self.lookup_method(cls, selector)?;
+            self.run_method_internal(method, receiver, args)
+        } else {
+            self.dispatch_internal(receiver, selector, args)
+        }
+    }
 
-        match body {
-            crate::object::MethodBody::Primitive(f) => f(&self_val, args, self.universe, self),
-            crate::object::MethodBody::Ast(block) => {
-                let mut arg_map = std::collections::HashMap::new();
-                for (i, name) in parameters.iter().enumerate() {
-                    if let Some(val) = args.get(i) {
-                        arg_map.insert(name.clone(), val.clone());
+    pub fn run_method_internal(&self, mut method: SomRef<SomMethod>, mut self_val: Value, mut args: Vec<Value>) -> Result<ReturnValue> {
+        let mut activations_in_chain: Vec<SomRef<Activation>> = Vec::new();
+        loop {
+            let m_ref = method.borrow();
+            let body = m_ref.body.clone();
+            let parameters = m_ref.parameters.clone();
+            let holder = m_ref.holder.clone();
+            drop(m_ref);
+
+            match body {
+                crate::object::MethodBody::Primitive(f) => {
+                    let res = f(&self_val, args, self.universe, self);
+                    for act in activations_in_chain {
+                        act.borrow_mut().is_active = false;
                     }
+                    return res;
                 }
-                let mut locals = std::collections::HashMap::new();
-                for local_name in &block.locals {
-                    locals.insert(local_name.clone(), Value::Nil);
-                }
+                crate::object::MethodBody::Ast(block) => {
+                    let mut arg_map = std::collections::HashMap::new();
+                    for (i, name) in parameters.iter().enumerate() {
+                        if let Some(val) = args.get(i) {
+                            arg_map.insert(name.clone(), val.clone());
+                        }
+                    }
+                    let mut locals = std::collections::HashMap::new();
+                    for local_name in &block.locals {
+                        locals.insert(local_name.clone(), Value::Nil);
+                    }
 
-                let activation = Rc::new(RefCell::new(Activation {
-                    holder: Some(holder),
-                    self_val: self_val.clone(),
-                    args: arg_map,
-                    locals,
-                    parent: None,
-                    is_active: true,
-                }));
-                
-                loop {
-                    let res = self.evaluate_block(&block, activation.clone());
-                    match res {
-                        Ok(ReturnValue::Restart) => continue,
-                        Ok(res) => {
-                            activation.borrow_mut().is_active = false;
-                            match res {
-                                ReturnValue::NonLocalReturn(v, target) => {
-                                    if Rc::ptr_eq(&target, &activation) {
-                                        return Ok(ReturnValue::Value(v));
-                                    } else {
-                                        return Ok(ReturnValue::NonLocalReturn(v, target));
-                                    }
+                    let activation = Rc::new(RefCell::new(Activation {
+                        holder: Some(holder),
+                        self_val: self_val.clone(),
+                        args: arg_map,
+                        locals,
+                        parent: None,
+                        is_active: true,
+                    }));
+                    activations_in_chain.push(activation.clone());
+                    
+                    let res = loop {
+                        let res = self.evaluate_block(&block, activation.clone(), true);
+                        match res {
+                            Ok(ReturnValue::Restart) => continue,
+                            Ok(res) => break res,
+                            Err(e) => {
+                                for act in activations_in_chain {
+                                    act.borrow_mut().is_active = false;
                                 }
-                                ReturnValue::Value(_) => return Ok(ReturnValue::Value(self_val)),
-                                ReturnValue::Restart => unreachable!(),
+                                return Err(e);
                             }
                         }
-                        Err(e) => {
-                            activation.borrow_mut().is_active = false;
-                            return Err(e);
+                    };
+
+                    match res {
+                        ReturnValue::NonLocalReturn(v, target) => {
+                            for (i, act) in activations_in_chain.iter().enumerate().rev() {
+                                if Rc::ptr_eq(&target, act) {
+                                    for j in i..activations_in_chain.len() {
+                                        activations_in_chain[j].borrow_mut().is_active = false;
+                                    }
+                                    return Ok(ReturnValue::Value(v));
+                                }
+                            }
+                            for act in activations_in_chain {
+                                act.borrow_mut().is_active = false;
+                            }
+                            return Ok(ReturnValue::NonLocalReturn(v, target));
                         }
+                        ReturnValue::TailCall(new_receiver, selector, new_args, super_class) => {
+                            let m = if let Some(cls) = super_class {
+                                self.lookup_method(cls, &selector)?
+                            } else {
+                                if let Value::Block(b) = &new_receiver {
+                                     if selector == "value" || selector == "value:" || selector == "value:with:" || selector == "value:with:with:" {
+                                         let res = self.run_block(b.clone(), new_args);
+                                         for act in activations_in_chain {
+                                             act.borrow_mut().is_active = false;
+                                         }
+                                         return res;
+                                     }
+                                }
+                                let cls = self.get_class(&new_receiver)?;
+                                match self.lookup_method(cls, &selector) {
+                                    Ok(m) => m,
+                                    Err(_) => {
+                                        let sym = Value::Symbol(selector.to_string());
+                                        let arr = Value::Array(Rc::new(RefCell::new(new_args)));
+                                        let res = self.dispatch_internal(new_receiver, "doesNotUnderstand:arguments:", vec![sym, arr]);
+                                        for act in activations_in_chain {
+                                            act.borrow_mut().is_active = false;
+                                        }
+                                        return res;
+                                    }
+                                }
+                            };
+                            method = m;
+                            self_val = new_receiver;
+                            args = new_args;
+                            continue;
+                        }
+                        ReturnValue::Value(_) => {
+                            for act in activations_in_chain {
+                                act.borrow_mut().is_active = false;
+                            }
+                            return Ok(ReturnValue::Value(self_val));
+                        }
+                        ReturnValue::Restart => unreachable!(),
                     }
                 }
             }
         }
     }
 
-    pub fn evaluate_block(&self, block: &Block, activation: SomRef<Activation>) -> Result<ReturnValue> {
+    pub fn evaluate_block(&self, block: &Block, activation: SomRef<Activation>, is_tail: bool) -> Result<ReturnValue> {
         let mut last_val = Value::Nil;
-        for expr in &block.body {
-            match self.evaluate_expression(expr, activation.clone())? {
+        for (i, expr) in block.body.iter().enumerate() {
+            let expr_is_tail = is_tail && (i == block.body.len() - 1);
+            match self.evaluate_expression(expr, activation.clone(), expr_is_tail)? {
                 ReturnValue::Value(v) => last_val = v,
-                ReturnValue::NonLocalReturn(v, target) => return Ok(ReturnValue::NonLocalReturn(v, target)),
-                ReturnValue::Restart => return Ok(ReturnValue::Restart),
+                res => return Ok(res),
             }
         }
         Ok(ReturnValue::Value(last_val))
     }
 
-    pub fn evaluate_expression(&self, expr: &Expression, activation: SomRef<Activation>) -> Result<ReturnValue> {
-        let depth = self.depth.get() + 1;
-        self.depth.set(depth);
-        if depth > 2000 {
-            return Err(anyhow!("Recursion limit exceeded"));
+    pub fn evaluate_expression(&self, expr: &Expression, activation: SomRef<Activation>, is_tail: bool) -> Result<ReturnValue> {
+        let mut res = self.evaluate_expression_internal(expr, activation, is_tail)?;
+        if !is_tail {
+            loop {
+                match res {
+                    ReturnValue::TailCall(recv, sel, args, sup) => {
+                        res = self.dispatch_internal_with_super(recv, &sel, args, sup)?;
+                    }
+                    _ => break,
+                }
+            }
         }
-        
-        let res = self.evaluate_expression_internal(expr, activation);
-        
-        self.depth.set(self.depth.get() - 1);
-        res
+        Ok(res)
     }
 
-    fn evaluate_expression_internal(&self, expr: &Expression, activation: SomRef<Activation>) -> Result<ReturnValue> {
+    fn evaluate_expression_internal(&self, expr: &Expression, activation: SomRef<Activation>, is_tail: bool) -> Result<ReturnValue> {
         match expr {
             Expression::Literal(lit) => Ok(ReturnValue::Value(self.evaluate_literal(lit))),
             Expression::Variable(name) => {
@@ -121,7 +187,7 @@ impl<'a> Interpreter<'a> {
                 }
             },
             Expression::Assignment(name, val_expr) => {
-                match self.evaluate_expression(val_expr, activation.clone())? {
+                match self.evaluate_expression(val_expr, activation.clone(), false)? {
                     ReturnValue::Value(val) => Ok(ReturnValue::Value(self.assign(name, val, activation)?)),
                     ret => Ok(ret),
                 }
@@ -136,7 +202,7 @@ impl<'a> Interpreter<'a> {
                 let receiver = if is_super {
                     self.lookup("self", activation.clone())?
                 } else {
-                    match self.evaluate_expression(receiver_expr, activation.clone())? {
+                    match self.evaluate_expression(receiver_expr, activation.clone(), false)? {
                         ReturnValue::Value(v) => v,
                         ret => return Ok(ret),
                     }
@@ -146,14 +212,14 @@ impl<'a> Interpreter<'a> {
                 match msg {
                     Message::Unary(_) => {},
                     Message::Binary(_, arg) => {
-                        match self.evaluate_expression(arg, activation.clone())? {
+                        match self.evaluate_expression(arg, activation.clone(), false)? {
                             ReturnValue::Value(v) => args.push(v),
                             ret => return Ok(ret),
                         }
                     },
                     Message::Keyword(parts) => {
                         for (_, arg) in parts {
-                            match self.evaluate_expression(arg, activation.clone())? {
+                            match self.evaluate_expression(arg, activation.clone(), false)? {
                                 ReturnValue::Value(v) => args.push(v),
                                 ret => return Ok(ret),
                             }
@@ -161,7 +227,16 @@ impl<'a> Interpreter<'a> {
                     }
                 }
 
-                if is_super {
+                if is_tail {
+                    let mut super_class_opt = None;
+                    if is_super {
+                        let method_act = self.find_method_activation(activation)?;
+                        let holder = method_act.borrow().holder.as_ref().unwrap().clone();
+                        let super_class = holder.borrow().super_class.as_ref().ok_or_else(|| anyhow!("Object has no superclass"))?.clone();
+                        super_class_opt = Some(super_class);
+                    }
+                    Ok(ReturnValue::TailCall(receiver, msg.selector(), args, super_class_opt))
+                } else if is_super {
                     let method_act = self.find_method_activation(activation)?;
                     let holder = method_act.borrow().holder.as_ref().unwrap().clone();
                     let super_class = holder.borrow().super_class.as_ref().ok_or_else(|| anyhow!("Object has no superclass"))?.clone();
@@ -178,14 +253,13 @@ impl<'a> Interpreter<'a> {
                 })))))
             }
             Expression::Return(expr) => {
-                let val = match self.evaluate_expression(expr, activation.clone())? {
-                    ReturnValue::Value(v) => v,
-                    ReturnValue::NonLocalReturn(v, target) => return Ok(ReturnValue::NonLocalReturn(v, target)),
-                    ReturnValue::Restart => return Ok(ReturnValue::Restart),
-                };
-                
-                let method_act = self.find_method_activation(activation)?;
-                Ok(ReturnValue::NonLocalReturn(val, method_act))
+                match self.evaluate_expression(expr, activation.clone(), true)? {
+                    ReturnValue::Value(v) => {
+                        let method_act = self.find_method_activation(activation)?;
+                        Ok(ReturnValue::NonLocalReturn(v, method_act))
+                    }
+                    res => Ok(res), // TailCall, NonLocalReturn, Restart
+                }
             }
         }
     }
@@ -200,33 +274,57 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    pub fn run_block(&self, block: SomRef<SomBlock>, args: Vec<Value>) -> Result<ReturnValue> {
-        let block_ref = block.borrow();
-        let mut arg_map = std::collections::HashMap::new();
-        for (i, name) in block_ref.body.parameters.iter().enumerate() {
-            if let Some(arg) = args.get(i) {
-                arg_map.insert(name.clone(), arg.clone());
-            }
-        }
-        let mut locals = std::collections::HashMap::new();
-        for local_name in &block_ref.body.locals {
-            locals.insert(local_name.clone(), Value::Nil);
-        }
-
-        let activation = Rc::new(RefCell::new(Activation {
-            holder: None,
-            self_val: block_ref.context.as_ref().map(|c| c.borrow().self_val.clone()).unwrap_or(Value::Nil),
-            args: arg_map,
-            locals,
-            parent: block_ref.context.clone(),
-            is_active: true,
-        }));
-
-        drop(block_ref);
+    pub fn run_block(&self, mut block: SomRef<SomBlock>, mut args: Vec<Value>) -> Result<ReturnValue> {
         loop {
-            match self.evaluate_block(&block.borrow().body, activation.clone())? {
-                ReturnValue::Restart => continue,
-                res => return Ok(res),
+            let block_ref = block.borrow();
+            let mut arg_map = std::collections::HashMap::new();
+            for (i, name) in block_ref.body.parameters.iter().enumerate() {
+                if let Some(arg) = args.get(i) {
+                    arg_map.insert(name.clone(), arg.clone());
+                }
+            }
+            let mut locals = std::collections::HashMap::new();
+            for local_name in &block_ref.body.locals {
+                locals.insert(local_name.clone(), Value::Nil);
+            }
+
+            let activation = Rc::new(RefCell::new(Activation {
+                holder: None,
+                self_val: block_ref.context.as_ref().map(|c| c.borrow().self_val.clone()).unwrap_or(Value::Nil),
+                args: arg_map,
+                locals,
+                parent: block_ref.context.clone(),
+                is_active: true,
+            }));
+
+            let body = block_ref.body.clone();
+            drop(block_ref);
+            
+            let res = loop {
+                match self.evaluate_block(&body, activation.clone(), true)? {
+                    ReturnValue::Restart => continue,
+                    res => break res,
+                }
+            };
+
+            activation.borrow_mut().is_active = false;
+            let mut current_res = res;
+            loop {
+                match current_res {
+                    ReturnValue::TailCall(new_receiver, selector, new_args, super_class) => {
+                        if super_class.is_none() {
+                            if let Value::Block(b) = &new_receiver {
+                                if selector == "value" || selector == "value:" || selector == "value:with:" || selector == "value:with:with:" {
+                                    block = b.clone();
+                                    args = new_args;
+                                    break; // break inner loop, continue outer loop to run the new block
+                                }
+                            }
+                        }
+                        current_res = self.dispatch_internal_with_super(new_receiver, &selector, new_args, super_class)?;
+                    }
+                    _ => return Ok(current_res),
+                }
             }
         }
     }
@@ -332,25 +430,25 @@ impl<'a> Interpreter<'a> {
         Err(anyhow!("Cannot assign to: {}", name))
     }
 
-    pub fn dispatch(&self, receiver: Value, selector: &str, args: Vec<Value>) -> Result<Value> {
-        match self.dispatch_internal(receiver, selector, args)? {
-            ReturnValue::Value(v) => Ok(v),
-            ReturnValue::NonLocalReturn(_, _) => Err(anyhow!("Non-local return escaped method scope")),
-            ReturnValue::Restart => Err(anyhow!("Restart escaped block/method scope")),
+    pub fn dispatch(&self, mut receiver: Value, mut selector: String, mut args: Vec<Value>) -> Result<Value> {
+        let mut super_class = None;
+        loop {
+            match self.dispatch_internal_with_super(receiver, &selector, args, super_class)? {
+                ReturnValue::Value(v) => return Ok(v),
+                ReturnValue::TailCall(recv, sel, a, sup) => {
+                    receiver = recv;
+                    selector = sel;
+                    args = a;
+                    super_class = sup;
+                }
+                ReturnValue::NonLocalReturn(_, _) => return Err(anyhow!("Non-local return escaped method scope")),
+                ReturnValue::Restart => return Err(anyhow!("Restart escaped block/method scope")),
+            }
         }
     }
 
     pub fn dispatch_internal(&self, receiver: Value, selector: &str, args: Vec<Value>) -> Result<ReturnValue> {
-        let current_depth = self.depth.get() + 1;
-        self.depth.set(current_depth);
-        if current_depth > 1000 {
-            return Err(anyhow!("Recursion limit exceeded in dispatch"));
-        }
-
-        let res = self.dispatch_internal_actual(receiver, selector, args);
-        
-        self.depth.set(self.depth.get() - 1);
-        res
+        self.dispatch_internal_actual(receiver, selector, args)
     }
 
     fn dispatch_internal_actual(&self, receiver: Value, selector: &str, args: Vec<Value>) -> Result<ReturnValue> {

@@ -22,7 +22,6 @@ The project is structured as a classic interpreter:
     - Block activations and closures.
     - Non-local returns and restarts.
 - **Primitives (`src/primitives.rs`)**: Implements built-in methods for core classes (e.g., arithmetic, array manipulation, system I/O).
-- **Threading**: The interpreter runs in a separate thread with an increased stack size (128 MB) to accommodate deep recursions typical in SOM programs.
 
 ## Usage
 

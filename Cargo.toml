@@ -3,6 +3,14 @@ name = "lazysom"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "lazysom"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lazysom"
+path = "src/main.rs"
+
 [dependencies]
 logos = "0.14"
 anyhow = "1.0"

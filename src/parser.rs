@@ -74,11 +74,14 @@ impl<'a> Parser<'a> {
         let instance_fields = self.parse_fields()?;
         let mut instance_methods = Vec::new();
         while self.is_pattern_start()? {
-            instance_methods.push(self.parse_method()?);
+            let m = self.parse_method()?;
+            // println!("DEBUG PARSER: Parsed instance method {}", m.signature.selector());
+            instance_methods.push(m);
         }
-        
+
         let mut class_fields = Vec::new();
         let mut class_methods = Vec::new();
+
         if self.peek()? == Token::Separator {
             self.next()?;
             class_fields = self.parse_fields()?;

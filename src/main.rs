@@ -1,17 +1,9 @@
-mod lexer;
-mod ast;
-mod parser;
-mod object;
-mod universe;
-mod interpreter;
-mod primitives;
-
 use std::path::PathBuf;
-use crate::universe::Universe;
-use crate::interpreter::Interpreter;
-use crate::object::{Value, SomObject};
 use anyhow::Result;
 use clap::Parser as ClapParser;
+use lazysom::universe::Universe;
+use lazysom::interpreter::Interpreter;
+use lazysom::object::{Value, SomObject};
 use std::rc::Rc;
 use std::cell::RefCell;
 
@@ -27,73 +19,45 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    
-    let child = std::thread::Builder::new()
-        .stack_size(128 * 1024 * 1024)
-        .spawn(move || {
-            run_with_args(args)
-        })?;
-    
-    child.join().map_err(|e| anyhow::anyhow!("Thread panicked: {:?}", e))?
+    run_with_args(args)
 }
 
 fn run_with_args(args: Args) -> Result<()> {
-    let mut classpath = vec![
-        PathBuf::from("SOM/Smalltalk"),
-        PathBuf::from("SOM/TestSuite"),
-        PathBuf::from("."),
-    ];
+    let mut classpath_extra = Vec::new();
     if let Some(cp) = args.classpath {
-        classpath.extend(cp.split(';').map(PathBuf::from));
+        classpath_extra.extend(cp.split(';').map(PathBuf::from));
     }
 
-    let universe = Universe::new(classpath);
-    
-    // Bootstrap: Load core classes
-    universe.load_class("Object")?;
-    universe.load_class("Class")?;
-    universe.load_class("Metaclass")?;
-    let sys_class = universe.load_class("System")?;
-    
-    // Create 'system' object
-    let system_obj = Rc::new(RefCell::new(SomObject {
-        class: sys_class.clone(),
-        fields: Vec::new(),
-    }));
-    universe.set_global("system", Value::Object(system_obj.clone()));
-    universe.set_global("nil", Value::Nil);
-    universe.set_global("true", Value::Boolean(true));
-    universe.set_global("false", Value::Boolean(false));
-
-    let interpreter = Interpreter::new(&universe);
-
     if !args.rest.is_empty() {
-        let filename = &args.rest[0];
-        let path = PathBuf::from(filename);
-        let class_name = path.file_stem().unwrap().to_str().unwrap();
-        let main_class = universe.load_class(class_name)?;
-        
-        // Instantiate main class
-        let instance = Rc::new(RefCell::new(SomObject {
-            class: main_class.clone(),
-            fields: vec![Value::Nil; main_class.borrow().instance_fields.len()],
-        }));
-
-        // Prep arguments for SOM (Array of strings)
-        let som_args: Vec<Value> = args.rest.iter()
-            .map(|s| Value::new_string(s.clone()))
-            .collect();
-        let args_array = Value::Array(Rc::new(RefCell::new(som_args)));
-
-        println!("Running {}...", class_name);
-        
-        // SOM convention: application run: args or application run
-        if main_class.borrow().methods.contains_key("run:") {
-            interpreter.dispatch(Value::Object(instance), "run:", vec![args_array])?;
-        } else {
-            interpreter.dispatch(Value::Object(instance), "run", Vec::new())?;
-        }
+        let filename = args.rest[0].clone();
+        println!("Running {}...", filename);
+        lazysom::run_som(classpath_extra, &filename, args.rest)
     } else {
+        // Keep REPL logic here for now as it's more specific to the CLI
+        let mut classpath = vec![
+            PathBuf::from("SOM/Smalltalk"),
+            PathBuf::from("SOM/TestSuite"),
+            PathBuf::from("."),
+        ];
+        classpath.extend(classpath_extra);
+
+        let universe = Universe::new(classpath);
+        universe.load_class("Object")?;
+        universe.load_class("Class")?;
+        universe.load_class("Metaclass")?;
+        let sys_class = universe.load_class("System")?;
+        
+        let system_obj = Rc::new(RefCell::new(SomObject {
+            class: sys_class.clone(),
+            fields: Vec::new(),
+        }));
+        universe.set_global("system", Value::Object(system_obj.clone()));
+        universe.set_global("nil", Value::Nil);
+        universe.set_global("true", Value::Boolean(true));
+        universe.set_global("false", Value::Boolean(false));
+
+        let interpreter = Interpreter::new(&universe);
+
         use rustyline::error::ReadlineError;
         use rustyline::DefaultEditor;
 
@@ -107,10 +71,10 @@ fn run_with_args(args: Args) -> Result<()> {
                     if line.trim() == "exit" { break; }
                     rl.add_history_entry(line.as_str())?;
                     
-                    let mut parser = crate::parser::Parser::new(&line);
+                    let mut parser = lazysom::parser::Parser::new(&line);
                     match parser.parse_expression() {
                         Ok(expr) => {
-                            let activation = Rc::new(RefCell::new(crate::object::Activation {
+                            let activation = Rc::new(RefCell::new(lazysom::object::Activation {
                                 holder: None,
                                 self_val: Value::Nil,
                                 args: std::collections::HashMap::new(),
@@ -118,8 +82,15 @@ fn run_with_args(args: Args) -> Result<()> {
                                 parent: None,
                                 is_active: true,
                              }));
-                            match interpreter.evaluate_expression(&expr, activation) {
-                                Ok(val) => println!("{:?}", val),
+                            match interpreter.evaluate_expression(&expr, activation, false) {
+                                Ok(lazysom::interpreter::ReturnValue::Value(val)) => println!("{:?}", val),
+                                Ok(lazysom::interpreter::ReturnValue::TailCall(recv, sel, args, sup)) => {
+                                    match interpreter.dispatch_internal_with_super(recv, &sel, args, sup) {
+                                        Ok(lazysom::interpreter::ReturnValue::Value(val)) => println!("{:?}", val),
+                                        res => println!("{:?}", res),
+                                    }
+                                }
+                                Ok(res) => println!("{:?}", res),
                                 Err(e) => println!("Error: {}", e),
                             }
                         }
@@ -135,7 +106,6 @@ fn run_with_args(args: Args) -> Result<()> {
                 }
             }
         }
+        Ok(())
     }
-
-    Ok(())
 }
