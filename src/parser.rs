@@ -366,7 +366,7 @@ impl<'a> Parser<'a> {
             Token::STString => {
                 let s = self.current_text()?;
                 self.next()?;
-                Ok(Literal::String(s[1..s.len()-1].to_string()))
+                Ok(Literal::String(unescape_string(&s[1..s.len()-1])))
             }
             Token::Pound => {
                 self.next()?;
@@ -390,7 +390,7 @@ impl<'a> Parser<'a> {
                              Token::Plus | Token::More | Token::Less | Token::At | Token::Per | Token::OperatorSequence => self.lexer.slice().to_string(),
                              Token::STString => {
                                  let s = self.lexer.slice().to_string();
-                                 s[1..s.len()-1].to_string()
+                                 unescape_string(&s[1..s.len()-1])
                              }
                              _ => return Err(anyhow!("Invalid symbol after #")),
                          };
@@ -411,4 +411,36 @@ impl<'a> Parser<'a> {
             _ => Err(anyhow!("Expected literal, got {:?}", token)),
         }
     }
+}
+
+fn unescape_string(s: &str) -> String {
+    let mut res = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('t') => res.push('\t'),
+                Some('b') => res.push('\x08'),
+                Some('n') => res.push('\n'),
+                Some('r') => res.push('\r'),
+                Some('f') => res.push('\x0c'),
+                Some('\'') => res.push('\''),
+                Some('\\') => res.push('\\'),
+                Some('0') => res.push('\0'),
+                Some(other) => {
+                    res.push('\\');
+                    res.push(other);
+                }
+                None => res.push('\\'),
+            }
+        } else if c == '\r' {
+            if let Some('\n') = chars.peek() {
+                chars.next();
+            }
+            res.push('\n');
+        } else {
+            res.push(c);
+        }
+    }
+    res
 }

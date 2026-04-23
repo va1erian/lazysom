@@ -81,14 +81,9 @@ impl Signature {
 impl Message {
     pub fn selector(&self) -> String {
         match self {
-            Message::Unary(s) => s.clone(),
-            Message::Binary(s, _) => s.clone(),
+            Message::Unary(s) | Message::Binary(s, _) => s.clone(),
             Message::Keyword(parts) => {
-                let mut sel = String::new();
-                for (p, _) in parts {
-                    sel.push_str(p);
-                }
-                sel
+                parts.iter().map(|(p, _)| p.as_str()).collect()
             }
         }
     }

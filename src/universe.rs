@@ -23,8 +23,9 @@ impl Universe {
             class: None,
             super_class: None,
             instance_fields: Vec::new(),
+            fields: Vec::new(),
             methods: HashMap::new(),
-            is_primitive: false,
+            method_order: Vec::new(),
         }));
         metaclass.borrow_mut().class = Some(metaclass.clone());
         globals.insert("Metaclass".to_string(), Value::Class(metaclass));
@@ -46,15 +47,23 @@ impl Universe {
         }
 
         // Create stub to break recursion
-        let stub = Rc::new(RefCell::new(SomClass {
-            name: name.to_string(),
-            class: None,
-            super_class: None,
-            instance_fields: Vec::new(),
-            methods: HashMap::new(),
-            is_primitive: false,
-        }));
-        self.globals.borrow_mut().insert(name.to_string(), Value::Class(stub.clone()));
+        let stub_opt = self.globals.borrow().get(name).cloned();
+        let stub = match stub_opt {
+            Some(Value::Class(cls)) => cls,
+            _ => {
+                let s = Rc::new(RefCell::new(SomClass {
+                    name: name.to_string(),
+                    class: None,
+                    super_class: None,
+                    instance_fields: Vec::new(),
+                    fields: Vec::new(),
+                    methods: HashMap::new(),
+                    method_order: Vec::new(),
+                }));
+                self.globals.borrow_mut().insert(name.to_string(), Value::Class(s.clone()));
+                s
+            }
+        };
 
         // Try to find .som file
         for path in &self.classpath {
@@ -64,7 +73,22 @@ impl Universe {
                 let mut parser = Parser::new(&content);
                 match parser.parse_class() {
                     Ok(class_def) => {
-                        self.assemble_class_into(class_def, stub.clone())?;
+                        let is_metaclass = name == "Metaclass";
+                        if is_metaclass {
+                            // Break recursion by making the stub look "loaded" (not empty)
+                            stub.borrow_mut().methods.insert("__loading__".to_string(), Rc::new(RefCell::new(SomMethod {
+                                name: "".to_string(),
+                                signature: "".to_string(),
+                                holder: stub.clone(),
+                                parameters: vec![],
+                                body: crate::object::MethodBody::Primitive(|_, _, _, _| Ok(crate::interpreter::ReturnValue::Value(Value::Nil))),
+                            })));
+                        }
+                        let res = self.assemble_class_into(class_def, stub.clone());
+                        if is_metaclass {
+                            stub.borrow_mut().methods.remove("__loading__");
+                        }
+                        res?;
                         return Ok(stub);
                     }
                     Err(e) => {
@@ -124,30 +148,35 @@ impl Universe {
             name: mc_name,
             class: Some(self.load_class("Metaclass")?),
             super_class: mc_super,
-            instance_fields: all_class_fields,
-            methods: HashMap::new(),
-            is_primitive: false,
+            instance_fields: all_class_fields.clone(),
+            fields: vec![Value::Nil; all_class_fields.len()],
+            methods: std::collections::HashMap::new(),
+            method_order: Vec::new(),
         }));
 
         // 2. Update the Class stub
         {
             let mut cls_mut = cls.borrow_mut();
             cls_mut.class = Some(metaclass.clone());
-            cls_mut.super_class = super_class;
+            cls_mut.super_class = super_class.clone();
             cls_mut.instance_fields = all_instance_fields;
+            cls_mut.fields = vec![Value::Nil; all_class_fields.len()];
+            // println!("DEBUG: Assembled class {} with superclass {:?}", cls_mut.name, cls_mut.super_class.as_ref().map(|sc| sc.borrow().name.clone()));
         }
 
         // 3. Assemble methods
         for m_def in def.instance_methods {
             let method = self.assemble_method(m_def, cls.clone())?;
             let sig = method.signature.clone();
-            cls.borrow_mut().methods.insert(sig, Rc::new(RefCell::new(method)));
+            cls.borrow_mut().methods.insert(sig.clone(), Rc::new(RefCell::new(method)));
+            cls.borrow_mut().method_order.push(sig);
         }
 
         for m_def in def.class_methods {
             let method = self.assemble_method(m_def, metaclass.clone())?;
             let sig = method.signature.clone();
-            metaclass.borrow_mut().methods.insert(sig, Rc::new(RefCell::new(method)));
+            metaclass.borrow_mut().methods.insert(sig.clone(), Rc::new(RefCell::new(method)));
+            metaclass.borrow_mut().method_order.push(sig);
         }
         
         Ok(())

@@ -96,8 +96,6 @@ pub enum Token {
 
     #[regex(r"'", lex_string)]
     STString,
-
-    Error,
 }
 
 fn lex_string(lex: &mut logos::Lexer<Token>) -> logos::Filter<()> {

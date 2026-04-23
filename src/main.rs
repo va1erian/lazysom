@@ -44,9 +44,7 @@ fn run_with_args(args: Args) -> Result<()> {
         PathBuf::from("."),
     ];
     if let Some(cp) = args.classpath {
-        for path in cp.split(';') {
-            classpath.push(PathBuf::from(path));
-        }
+        classpath.extend(cp.split(';').map(PathBuf::from));
     }
 
     let universe = Universe::new(classpath);
@@ -83,7 +81,7 @@ fn run_with_args(args: Args) -> Result<()> {
 
         // Prep arguments for SOM (Array of strings)
         let som_args: Vec<Value> = args.rest.iter()
-            .map(|s| Value::String(s.clone()))
+            .map(|s| Value::new_string(s.clone()))
             .collect();
         let args_array = Value::Array(Rc::new(RefCell::new(som_args)));
 
@@ -118,6 +116,7 @@ fn run_with_args(args: Args) -> Result<()> {
                                 args: std::collections::HashMap::new(),
                                 locals: std::collections::HashMap::new(),
                                 parent: None,
+                                is_active: true,
                              }));
                             match interpreter.evaluate_expression(&expr, activation) {
                                 Ok(val) => println!("{:?}", val),

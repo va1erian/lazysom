@@ -10,7 +10,7 @@ pub type SomRef<T> = Rc<RefCell<T>>;
 pub enum Value {
     Integer(BigInt),
     Double(f64),
-    String(String),
+    String(SomRef<String>),
     Symbol(String),
     Boolean(bool),
     Nil,
@@ -27,7 +27,7 @@ impl PartialEq for Value {
         match (self, other) {
             (Value::Integer(a), Value::Integer(b)) => a == b,
             (Value::Double(a), Value::Double(b)) => a == b,
-            (Value::String(a), Value::String(b)) => a == b,
+            (Value::String(a), Value::String(b)) => Rc::ptr_eq(a, b),
             (Value::Symbol(a), Value::Symbol(b)) => a == b,
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
             (Value::Nil, Value::Nil) => true,
@@ -66,23 +66,24 @@ pub struct SomClass {
     pub class: Option<SomRef<SomClass>>, // Metaclass
     pub super_class: Option<SomRef<SomClass>>,
     pub instance_fields: Vec<String>,
+    pub fields: Vec<Value>, // Class fields
     pub methods: HashMap<String, SomRef<SomMethod>>,
-    pub is_primitive: bool,
+    pub method_order: Vec<String>,
 }
 
 impl PartialEq for SomClass {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name &&
-        match (&self.class, &other.class) {
+        let class_eq = match (&self.class, &other.class) {
             (Some(a), Some(b)) => Rc::ptr_eq(a, b),
             (None, None) => true,
             _ => false,
-        } &&
-        match (&self.super_class, &other.super_class) {
+        };
+        let super_class_eq = match (&self.super_class, &other.super_class) {
             (Some(a), Some(b)) => Rc::ptr_eq(a, b),
             (None, None) => true,
             _ => false,
-        }
+        };
+        self.name == other.name && class_eq && super_class_eq
     }
 }
 
@@ -102,6 +103,12 @@ pub struct SomMethod {
     pub holder: SomRef<SomClass>,
     pub parameters: Vec<String>,
     pub body: MethodBody,
+}
+
+impl SomMethod {
+    pub fn is_primitive(&self) -> bool {
+        matches!(self.body, MethodBody::Primitive(_))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -141,9 +148,14 @@ pub struct Activation {
     pub args: HashMap<String, Value>,
     pub locals: HashMap<String, Value>,
     pub parent: Option<SomRef<Activation>>,
+    pub is_active: bool,
 }
 
 impl Value {
+    pub fn new_string(s: String) -> Self {
+        Value::String(Rc::new(RefCell::new(s)))
+    }
+
     #[allow(dead_code)]
     pub fn is_nil(&self) -> bool {
         matches!(self, Value::Nil)
