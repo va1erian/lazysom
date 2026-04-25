@@ -331,7 +331,7 @@ pub fn compile_image(universe: &crate::universe::Universe, initial_classes: &[&s
     }
 
     let globals = universe.globals.borrow();
-    let mut class_names = Vec::new();
+    let mut class_names: Vec<String> = Vec::new();
     for (name, val) in globals.iter() {
         if let crate::object::Value::Class(_) = val {
             class_names.push(name.clone());

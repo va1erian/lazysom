@@ -27,5 +27,19 @@ jobs:
     - name: Build
       run: cargo build --release
 
-    - name: Run Tests
+    - name: Run Rust Tests
+      run: cargo test --release
+
+    - name: Run SOM TestHarness
       run: cargo run --release -- SOM/TestSuite/TestHarness.som
+
+    - name: Run all tests/Test*.som scripts
+      run: |
+        for f in tests/Test*.som; do
+          if [ -f "$f" ]; then
+            name=$(basename "$f" .som)
+            echo "::group::Running $name"
+            cargo run -q --release -- -c tests "$name"
+            echo "::endgroup::"
+          fi
+        done

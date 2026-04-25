@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use crate::object::*;
@@ -18,7 +17,7 @@ impl Universe {
         let mut globals = HashMap::new();
         
         // Initial stub for bootstrap: Metaclass
-        let metaclass = Rc::new(RefCell::new(SomClass {
+        let metaclass = som_ref(SomClass {
             name: "Metaclass".to_string(),
             class: None,
             super_class: None,
@@ -26,7 +25,7 @@ impl Universe {
             fields: Vec::new(),
             methods: HashMap::new(),
             method_order: Vec::new(),
-        }));
+        });
         metaclass.borrow_mut().class = Some(metaclass.clone());
         globals.insert("Metaclass".to_string(), Value::Class(metaclass));
 
@@ -56,7 +55,7 @@ impl Universe {
         let stub = match stub_opt {
             Some(Value::Class(cls)) => cls,
             _ => {
-                let s = Rc::new(RefCell::new(SomClass {
+                let s = som_ref(SomClass {
                     name: name.to_string(),
                     class: None,
                     super_class: None,
@@ -64,7 +63,7 @@ impl Universe {
                     fields: Vec::new(),
                     methods: HashMap::new(),
                     method_order: Vec::new(),
-                }));
+                });
                 self.globals.borrow_mut().insert(name.to_string(), Value::Class(s.clone()));
                 s
             }
@@ -81,13 +80,13 @@ impl Universe {
                         let is_metaclass = name == "Metaclass";
                         if is_metaclass {
                             // Break recursion by making the stub look "loaded" (not empty)
-                            stub.borrow_mut().methods.insert("__loading__".to_string(), Rc::new(RefCell::new(SomMethod {
+                            stub.borrow_mut().methods.insert("__loading__".to_string(), som_ref(SomMethod {
                                 name: "".to_string(),
                                 signature: "".to_string(),
                                 holder: stub.clone(),
                                 parameters: vec![],
                                 body: crate::object::MethodBody::Primitive(|_, _, _, _| Ok(crate::interpreter::ReturnValue::Value(Value::Nil))),
-                            })));
+                            }));
                         }
                         let res = self.assemble_class_into(class_def, stub.clone());
                         if is_metaclass {
@@ -149,7 +148,7 @@ impl Universe {
         }
         all_class_fields.extend(def.class_fields);
 
-        let metaclass = Rc::new(RefCell::new(SomClass {
+        let metaclass = som_ref(SomClass {
             name: mc_name,
             class: Some(self.load_class("Metaclass")?),
             super_class: mc_super,
@@ -157,7 +156,7 @@ impl Universe {
             fields: vec![Value::Nil; all_class_fields.len()],
             methods: std::collections::HashMap::new(),
             method_order: Vec::new(),
-        }));
+        });
 
         // 2. Update the Class stub
         {
@@ -173,14 +172,14 @@ impl Universe {
         for m_def in def.instance_methods {
             let method = self.assemble_method(m_def, cls.clone())?;
             let sig = method.signature.clone();
-            cls.borrow_mut().methods.insert(sig.clone(), Rc::new(RefCell::new(method)));
+            cls.borrow_mut().methods.insert(sig.clone(), som_ref(method));
             cls.borrow_mut().method_order.push(sig);
         }
 
         for m_def in def.class_methods {
             let method = self.assemble_method(m_def, metaclass.clone())?;
             let sig = method.signature.clone();
-            metaclass.borrow_mut().methods.insert(sig.clone(), Rc::new(RefCell::new(method)));
+            metaclass.borrow_mut().methods.insert(sig.clone(), som_ref(method));
             metaclass.borrow_mut().method_order.push(sig);
         }
         

@@ -1,0 +1,7 @@
+TestMethods = (
+    run = (
+        Object methods do: [:m |
+            (m signature asString + ' is a ' + m class name asString) println.
+        ].
+    )
+)
