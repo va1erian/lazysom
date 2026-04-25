@@ -1,0 +1,26 @@
+LazyIde = (
+    | browser workspace |
+
+    initialize = (
+        browser := Browser new initialize.
+        workspace := Workspace new initialize.
+    )
+
+    run = (
+        self initialize.
+    )
+
+    renderFrameOn: nativeContextPtr = (
+        | ctx |
+        ctx := EguiContext new.
+        ctx handle: nativeContextPtr.
+
+        ctx window: 'System Browser' do: [:winUi |
+            browser renderOn: winUi.
+        ].
+
+        ctx window: 'Workspace' do: [:winUi |
+            workspace renderOn: winUi.
+        ].
+    )
+)

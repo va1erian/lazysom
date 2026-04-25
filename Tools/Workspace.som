@@ -1,0 +1,22 @@
+Workspace = (
+    | codeOutput codeInput |
+
+    initialize = (
+        codeInput := '"Type SOM code here"'.
+        codeOutput := ''.
+    )
+
+    renderOn: winUi = (
+        winUi label: 'Do It:'.
+        winUi textEditMultiline: codeInput.
+
+        (winUi button: 'Evaluate') ifTrue: [
+            | result |
+            result := system evaluate: codeInput.
+            codeOutput := result asString.
+        ].
+
+        winUi label: 'Result:'.
+        winUi label: codeOutput.
+    )
+)

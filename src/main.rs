@@ -21,12 +21,20 @@ struct Args {
     #[arg(long, help = "Run an application from a compiled image")]
     run_image: Option<String>,
 
+    #[arg(long, help = "Run the application with eframe/egui GUI")]
+    gui: bool,
+
     #[arg(trailing_var_arg = true)]
     rest: Vec<String>,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
+
+    if args.gui {
+        // Run in main thread for winit event loop requirements
+        return run_with_args(args);
+    }
 
     let child = std::thread::Builder::new()
         .stack_size(128 * 1024 * 1024)
@@ -131,6 +139,25 @@ fn run_with_args(args: Args) -> Result<()> {
             .map(|s| Value::new_string(s.clone()))
             .collect();
         let args_array = Value::Array(som_ref(som_args));
+
+        if args.gui {
+            println!("Starting GUI for {}...", class_name);
+            // Run initialization
+            if main_class.borrow().methods.contains_key("run:") {
+                interpreter.dispatch(Value::Object(instance.clone()), "run:", vec![args_array])?;
+            } else if main_class.borrow().methods.contains_key("run") {
+                interpreter.dispatch(Value::Object(instance.clone()), "run", Vec::new())?;
+            }
+
+            let app = lazysom::gui::SomGuiApp::new(std::sync::Arc::new(universe), Value::Object(instance));
+            let options = eframe::NativeOptions::default();
+            eframe::run_native(
+                "LazySOM GUI",
+                options,
+                Box::new(|_cc| Ok(Box::new(app))),
+            ).map_err(|e| anyhow::anyhow!("eframe error: {:?}", e))?;
+            return Ok(());
+        }
 
         println!("Running {}...", class_name);
 

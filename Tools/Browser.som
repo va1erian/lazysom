@@ -1,0 +1,30 @@
+Browser = (
+    | selectedClass classList |
+
+    initialize = (
+        classList := system classNames.
+        selectedClass := nil.
+    )
+
+    renderOn: winUi = (
+        winUi horizontal: [:row |
+            "Left column: Classes"
+            row vertical: [:col |
+                classList do: [:className |
+                    (col button: className asString) ifTrue: [
+                        selectedClass := system global: className.
+                    ].
+                ].
+            ].
+
+            "Right column: Methods"
+            row vertical: [:col |
+                selectedClass isNil ifFalse: [
+                    selectedClass selectors do: [:sel |
+                        col label: sel asString.
+                    ].
+                ].
+            ].
+        ].
+    )
+)

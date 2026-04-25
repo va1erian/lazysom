@@ -31,6 +31,7 @@ pub enum Value {
     Method(SomRef<SomMethod>),
     Block(SomRef<SomBlock>),
     CompiledBlock(SomRef<CompiledBlockInstance>),
+    NativeHandle(usize),
 }
 
 unsafe impl Trace for Value {
@@ -45,7 +46,7 @@ unsafe impl Trace for Value {
             Value::CompiledBlock(cb)=> mark(cb),
             // Scalars carry no GC pointers
             Value::Integer(_) | Value::Double(_) | Value::Symbol(_)
-            | Value::Boolean(_)     | Value::Nil => {}
+            | Value::Boolean(_)     | Value::Nil | Value::NativeHandle(_) => {}
         }
     });
 }
@@ -65,6 +66,7 @@ impl PartialEq for Value {
             (Value::Method(a), Value::Method(b)) => Gc::ptr_eq(a, b),
             (Value::Block(a), Value::Block(b)) => Gc::ptr_eq(a, b),
             (Value::CompiledBlock(a), Value::CompiledBlock(b)) => Gc::ptr_eq(a, b),
+            (Value::NativeHandle(a), Value::NativeHandle(b)) => a == b,
             _ => false,
         }
     }

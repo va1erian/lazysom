@@ -53,6 +53,16 @@ Running `lazysom` without arguments starts a minimal REPL:
 cargo run
 ```
 
+### GUI IDE
+
+`lazysom` includes a minimal Smalltalk-style IDE (Browser and Workspace) built using `eframe` and `egui`.
+
+To launch the IDE, use the `--gui` flag and include the `Tools` directory in the classpath:
+
+```bash
+cargo run --release -- --classpath Tools --gui LazyIde
+```
+
 ## Testing
 
 `lazysom` is tested against the standard SOM test suite located in `SOM/TestSuite`.
