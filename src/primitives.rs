@@ -448,6 +448,7 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
             Value::Array(arr) => Rc::as_ptr(arr) as i64,
             Value::Method(m) => Rc::as_ptr(m) as i64,
             Value::Block(b) => Rc::as_ptr(b) as i64,
+            Value::CompiledBlock(b) => Rc::as_ptr(b) as i64,
         };
         Ok(ReturnValue::Value(Value::Integer(BigInt::from(h & 0x7FFFFFFF))))
     }
@@ -727,6 +728,15 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
                     _ => "Block", // Fallback for many arguments
                 }
             }
+            Value::CompiledBlock(b) => {
+                let params = b.borrow().block.num_args;
+                match params {
+                    0 => "Block1",
+                    1 => "Block2",
+                    2 => "Block3",
+                    _ => "Block", // Fallback for many arguments
+                }
+            }
             Value::Symbol(_) => "Symbol",
             Value::Method(_) => "Method",
         };
@@ -836,6 +846,7 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
                 Value::Nil => universe.get_global("Nil"),
                 Value::Array(_) => universe.get_global("Array"),
                 Value::Block(_) => universe.get_global("Block"),
+                Value::CompiledBlock(_) => universe.get_global("Block"),
                 Value::Object(obj) => Some(Value::Class(obj.borrow().class.clone())),
                 Value::Class(cls) => cls.borrow().class.as_ref().map(|mc| Value::Class(mc.clone())),
                 Value::Method(_) => universe.get_global("Method"),

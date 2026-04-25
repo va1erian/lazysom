@@ -5,6 +5,9 @@ mod object;
 mod universe;
 mod interpreter;
 mod primitives;
+mod bytecode;
+mod compiler;
+mod bytecode_interpreter;
 
 use std::path::PathBuf;
 use crate::universe::Universe;
@@ -20,6 +23,12 @@ use std::cell::RefCell;
 struct Args {
     #[arg(short, long, value_name = "PATH")]
     classpath: Option<String>,
+
+    #[arg(long, help = "Compile the application to an image")]
+    compile_image: Option<String>,
+
+    #[arg(long, help = "Run an application from a compiled image")]
+    run_image: Option<String>,
 
     #[arg(trailing_var_arg = true)]
     rest: Vec<String>,
@@ -48,14 +57,63 @@ fn run_with_args(args: Args) -> Result<()> {
     }
 
     let universe = Universe::new(classpath);
-    
-    // Bootstrap: Load core classes
+
+    if let Some(image_path) = args.compile_image {
+        let core_classes = ["Object", "Class", "Metaclass", "System", "Integer", "String", "True", "False", "Nil", "Double", "Array", "Block", "Symbol", "Method", "Primitive"];
+        for cls in core_classes {
+            let _ = universe.load_class(cls);
+        }
+
+        let mut initial_classes_str = Vec::new();
+        if !args.rest.is_empty() {
+            let p = PathBuf::from(&args.rest[0]);
+            initial_classes_str.push(p.file_stem().unwrap().to_str().unwrap().to_string());
+        }
+        let initial_classes: Vec<&str> = initial_classes_str.iter().map(|s| s.as_str()).collect();
+
+        println!("Compiling image to {}...", image_path);
+        let image = compiler::compile_image(&universe, &initial_classes)?;
+        let file = std::fs::File::create(image_path)?;
+        bincode::serialize_into(file, &image)?;
+        println!("Image compiled successfully.");
+        return Ok(());
+    }
+
+    if let Some(image_path) = args.run_image {
+        if args.rest.is_empty() {
+            return Err(anyhow::anyhow!("Class name required to run from image"));
+        }
+
+        let file = std::fs::File::open(image_path)?;
+        let image: bytecode::Image = bincode::deserialize_from(file)?;
+
+        universe.load_class("Object")?;
+        universe.load_class("Class")?;
+        universe.load_class("Metaclass")?;
+        let sys_class = universe.load_class("System")?;
+
+        let system_obj = Rc::new(RefCell::new(SomObject {
+            class: sys_class.clone(),
+            fields: Vec::new(),
+        }));
+        universe.set_global("system", Value::Object(system_obj.clone()));
+        universe.set_global("nil", Value::Nil);
+        universe.set_global("true", Value::Boolean(true));
+        universe.set_global("false", Value::Boolean(false));
+
+        let class_name = &args.rest[0];
+        println!("Running {} from image...", class_name);
+
+        let interp = bytecode_interpreter::BytecodeInterpreter::new(&universe, image);
+        interp.run(class_name, args.rest[1..].to_vec())?;
+        return Ok(());
+    }
+
     universe.load_class("Object")?;
     universe.load_class("Class")?;
     universe.load_class("Metaclass")?;
     let sys_class = universe.load_class("System")?;
     
-    // Create 'system' object
     let system_obj = Rc::new(RefCell::new(SomObject {
         class: sys_class.clone(),
         fields: Vec::new(),
@@ -73,13 +131,11 @@ fn run_with_args(args: Args) -> Result<()> {
         let class_name = path.file_stem().unwrap().to_str().unwrap();
         let main_class = universe.load_class(class_name)?;
         
-        // Instantiate main class
         let instance = Rc::new(RefCell::new(SomObject {
             class: main_class.clone(),
             fields: vec![Value::Nil; main_class.borrow().instance_fields.len()],
         }));
 
-        // Prep arguments for SOM (Array of strings)
         let som_args: Vec<Value> = args.rest.iter()
             .map(|s| Value::new_string(s.clone()))
             .collect();
@@ -87,7 +143,6 @@ fn run_with_args(args: Args) -> Result<()> {
 
         println!("Running {}...", class_name);
         
-        // SOM convention: application run: args or application run
         if main_class.borrow().methods.contains_key("run:") {
             interpreter.dispatch(Value::Object(instance), "run:", vec![args_array])?;
         } else {
