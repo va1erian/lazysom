@@ -1,0 +1,34 @@
+TestMetaclasses = (
+    run = (
+        | objClass intClass intClassClass intClassClassClass metaClass metaClassClass metaClassClassClass objectClass objectClassSuperclass classClassClass |
+        
+        objClass := Object superclass.
+        ('Object superclass: ' + objClass asString) println.
+        
+        intClass := 1 class.
+        ('1 class: ' + intClass asString) println.
+        
+        intClassClass := 1 class class.
+        ('1 class class name: ' + intClassClass name asString) println.
+        
+        intClassClassClass := 1 class class class.
+        ('1 class class class: ' + intClassClassClass asString) println.
+        
+        metaClass := Metaclass class name.
+        ('Metaclass class name: ' + metaClass asString) println.
+        
+        metaClassClass := Metaclass class class.
+        ('Metaclass class class: ' + metaClassClass asString) println.
+        
+        objectClass := 1 class superclass.
+        ('1 class superclass: ' + objectClass asString) println.
+        
+        objectClassSuperclass := 1 class class superclass name.
+        ('1 class class superclass name: ' + objectClassSuperclass asString) println.
+        
+        ('Object class superclass: ' + Object class superclass asString) println.
+        
+        classClassClass := Class class class.
+        ('Class class class: ' + classClassClass asString) println.
+    )
+)

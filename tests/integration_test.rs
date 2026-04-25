@@ -1,8 +1,6 @@
 use lazysom::universe::Universe;
 use lazysom::interpreter::{Interpreter, ReturnValue};
-use lazysom::object::{Value, SomObject};
-use std::rc::Rc;
-use std::cell::RefCell;
+use lazysom::object::{Value, SomObject, som_ref};
 use anyhow::Result;
 
 #[test]
@@ -39,10 +37,10 @@ fn test_scripting_capabilities() -> Result<()> {
     universe.load_class("String")?;
     let sys_class = universe.load_class("System")?;
 
-    let system_obj = Rc::new(RefCell::new(SomObject {
+    let system_obj = som_ref(SomObject {
         class: sys_class.clone(),
         fields: Vec::new(),
-    }));
+    });
     universe.set_global("system", Value::Object(system_obj.clone()));
     universe.set_global("nil", Value::Nil);
     universe.set_global("true", Value::Boolean(true));

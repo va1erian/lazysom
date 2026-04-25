@@ -2,8 +2,8 @@ use crate::bytecode::*;
 use crate::object::*;
 use crate::universe::Universe;
 use anyhow::{anyhow, Result};
-use std::rc::Rc;
-use std::cell::RefCell;
+use gc::{custom_trace, Finalize, Trace};
+
 
 pub struct BytecodeInterpreter<'a> {
     pub universe: &'a Universe,
@@ -11,7 +11,7 @@ pub struct BytecodeInterpreter<'a> {
     pub depth: std::cell::Cell<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Finalize)]
 pub struct Frame {
     pub method_name: String,
     pub constants: Vec<Constant>,
@@ -25,6 +25,17 @@ pub struct Frame {
     pub holder: Option<SomRef<SomClass>>,
     pub self_val: Value,
     pub is_active: bool,
+}
+
+unsafe impl Trace for Frame {
+    custom_trace!(this, {
+        for v in &this.locals  { mark(v); }
+        for v in &this.args    { mark(v); }
+        for v in &this.stack   { mark(v); }
+        if let Some(ctx) = &this.context { mark(ctx); }
+        if let Some(h)   = &this.holder  { mark(h); }
+        mark(&this.self_val);
+    });
 }
 
 #[derive(Debug, Clone)]
@@ -41,15 +52,15 @@ impl<'a> BytecodeInterpreter<'a> {
     pub fn run(&self, class_name: &str, args: Vec<String>) -> Result<()> {
         let main_class = self.universe.load_class(class_name)?;
 
-        let instance = Rc::new(RefCell::new(SomObject {
+        let instance = som_ref(SomObject {
             class: main_class.clone(),
             fields: vec![Value::Nil; main_class.borrow().instance_fields.len()],
-        }));
+        });
 
         let som_args: Vec<Value> = args.iter()
             .map(|s| Value::new_string(s.clone()))
             .collect();
-        let args_array = Value::Array(Rc::new(RefCell::new(som_args)));
+        let args_array = Value::Array(som_ref(som_args));
 
         if main_class.borrow().methods.contains_key("run:") {
             self.dispatch(Value::Object(instance), "run:", vec![args_array])?;
@@ -80,7 +91,7 @@ impl<'a> BytecodeInterpreter<'a> {
                 let block = cb.borrow().block.clone();
                 let frame_args = args.clone();
 
-                let frame = Rc::new(RefCell::new(Frame {
+                let frame = som_ref(Frame {
                     method_name: "block_invoke".to_string(),
                     constants: block.constants,
                     blocks: block.blocks,
@@ -93,7 +104,7 @@ impl<'a> BytecodeInterpreter<'a> {
                     holder: cb.borrow().context.as_ref().and_then(|c| c.borrow().holder.clone()),
                     self_val: cb.borrow().context.as_ref().map(|c| c.borrow().self_val.clone()).unwrap_or(Value::Nil),
                     is_active: true,
-                }));
+                });
 
                 let res = self.execute_frame(frame);
                 self.depth.set(depth - 1);
@@ -179,7 +190,7 @@ impl<'a> BytecodeInterpreter<'a> {
             }
         }
 
-        let frame = Rc::new(RefCell::new(Frame {
+        let frame = som_ref(Frame {
             method_name: method.name,
             constants: method.constants,
             blocks: method.blocks,
@@ -192,7 +203,7 @@ impl<'a> BytecodeInterpreter<'a> {
             holder: Some(self.get_class(&receiver)?),
             self_val: receiver,
             is_active: true,
-        }));
+        });
 
         self.execute_frame(frame)
     }
@@ -331,7 +342,7 @@ impl<'a> BytecodeInterpreter<'a> {
                 Opcode::PushBlock(idx) => {
                     let block = frame.borrow().blocks[idx as usize].clone();
                     let block_inst = CompiledBlockInstance { block, context: Some(frame.clone()) };
-                    let val = Value::CompiledBlock(Rc::new(RefCell::new(block_inst)));
+                    let val = Value::CompiledBlock(som_ref(block_inst));
                     frame.borrow_mut().stack.push(val);
                 }
             }
@@ -353,7 +364,7 @@ impl<'a> BytecodeInterpreter<'a> {
                 for c in arr {
                     vals.push(self.eval_constant(c)?);
                 }
-                Ok(Value::Array(Rc::new(RefCell::new(vals))))
+                Ok(Value::Array(som_ref(vals)))
             }
         }
     }

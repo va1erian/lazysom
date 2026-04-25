@@ -2,8 +2,7 @@ use crate::object::*;
 use crate::ast::*;
 use crate::universe::Universe;
 use anyhow::{Result, anyhow};
-use std::rc::Rc;
-use std::cell::RefCell;
+use gc::Gc;
 
 pub struct Interpreter<'a> {
     pub universe: &'a Universe,
@@ -25,14 +24,14 @@ impl<'a> Interpreter<'a> {
     pub fn evaluate_snippet(&self, code: &str) -> Result<Value> {
         let mut parser = crate::parser::Parser::new(code);
         let expr = parser.parse_expression()?;
-        let activation = Rc::new(RefCell::new(crate::object::Activation {
+        let activation = som_ref(crate::object::Activation {
             holder: None,
             self_val: Value::Nil,
             args: std::collections::HashMap::new(),
             locals: std::collections::HashMap::new(),
             parent: None,
             is_active: true,
-        }));
+        });
         let result = self.evaluate_expression(&expr, activation)?;
         match result {
             ReturnValue::Value(v) => Ok(v),
@@ -62,14 +61,14 @@ impl<'a> Interpreter<'a> {
                     locals.insert(local_name.clone(), Value::Nil);
                 }
 
-                let activation = Rc::new(RefCell::new(Activation {
+                let activation = som_ref(Activation {
                     holder: Some(holder),
                     self_val: self_val.clone(),
                     args: arg_map,
                     locals,
                     parent: None,
                     is_active: true,
-                }));
+                });
                 
                 loop {
                     let res = self.evaluate_block(&block, activation.clone());
@@ -79,7 +78,7 @@ impl<'a> Interpreter<'a> {
                             activation.borrow_mut().is_active = false;
                             match res {
                                 ReturnValue::NonLocalReturn(v, target) => {
-                                    if Rc::ptr_eq(&target, &activation) {
+                                    if Gc::ptr_eq(&target, &activation) {
                                         return Ok(ReturnValue::Value(v));
                                     } else {
                                         return Ok(ReturnValue::NonLocalReturn(v, target));
@@ -191,11 +190,12 @@ impl<'a> Interpreter<'a> {
                 }
             }
             Expression::Block(b) => {
-                Ok(ReturnValue::Value(Value::Block(Rc::new(RefCell::new(SomBlock {
+                Ok(ReturnValue::Value(Value::Block(som_ref(SomBlock {
                     body: b.clone(),
                     context: Some(activation),
-                })))))
+                }))))
             }
+
             Expression::Return(expr) => {
                 let val = match self.evaluate_expression(expr, activation.clone())? {
                     ReturnValue::Value(v) => v,
@@ -232,14 +232,14 @@ impl<'a> Interpreter<'a> {
             locals.insert(local_name.clone(), Value::Nil);
         }
 
-        let activation = Rc::new(RefCell::new(Activation {
+        let activation = som_ref(Activation {
             holder: None,
             self_val: block_ref.context.as_ref().map(|c| c.borrow().self_val.clone()).unwrap_or(Value::Nil),
             args: arg_map,
             locals,
             parent: block_ref.context.clone(),
             is_active: true,
-        }));
+        });
 
         drop(block_ref);
         loop {
@@ -258,7 +258,7 @@ impl<'a> Interpreter<'a> {
             Literal::Symbol(s) => Value::Symbol(s.clone()),
             Literal::Array(arr) => {
                 let vals: Vec<Value> = arr.iter().map(|lit| self.evaluate_literal(lit)).collect();
-                Value::Array(Rc::new(RefCell::new(vals)))
+                Value::Array(som_ref(vals))
             }
         }
     }
@@ -406,7 +406,7 @@ impl<'a> Interpreter<'a> {
             Ok(method) => self.run_method_internal(method, receiver, args),
             Err(_) => {
                 let sym = Value::Symbol(selector.to_string());
-                let arr = Value::Array(Rc::new(RefCell::new(args)));
+                let arr = Value::Array(som_ref(args));
                 self.dispatch_internal(receiver, "doesNotUnderstand:arguments:", vec![sym, arr])
             }
         }

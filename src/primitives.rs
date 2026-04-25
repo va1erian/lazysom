@@ -2,8 +2,7 @@ use crate::object::*;
 use crate::universe::Universe;
 use crate::interpreter::{Interpreter, ReturnValue};
 use anyhow::{Result, anyhow};
-use std::rc::Rc;
-use std::cell::RefCell;
+use gc::Gc;
 use num_bigint::BigInt;
 use num_traits::{ToPrimitive, Zero, Signed};
 use num_integer::Integer;
@@ -100,7 +99,7 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
     }
 
     fn sys_full_gc(_: &Value, _: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
-        // No-op for now, but return true as some tests expect it to indicate support
+        gc::force_collect();
         Ok(ReturnValue::Value(Value::Boolean(true)))
     }
 
@@ -443,12 +442,12 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
             }
             Value::Boolean(b) => if *b { 1 } else { 0 },
             Value::Nil => 0,
-            Value::Object(obj) => Rc::as_ptr(obj) as i64,
-            Value::Class(cls) => Rc::as_ptr(cls) as i64,
-            Value::Array(arr) => Rc::as_ptr(arr) as i64,
-            Value::Method(m) => Rc::as_ptr(m) as i64,
-            Value::Block(b) => Rc::as_ptr(b) as i64,
-            Value::CompiledBlock(b) => Rc::as_ptr(b) as i64,
+            Value::Object(obj) => Gc::as_ptr(obj) as i64,
+            Value::Class(cls) => Gc::as_ptr(cls) as i64,
+            Value::Array(arr) => Gc::as_ptr(arr) as i64,
+            Value::Method(m)  => Gc::as_ptr(m) as i64,
+            Value::Block(b)   => Gc::as_ptr(b) as i64,
+            Value::CompiledBlock(b) => Gc::as_ptr(b) as i64,
         };
         Ok(ReturnValue::Value(Value::Integer(BigInt::from(h & 0x7FFFFFFF))))
     }
@@ -507,7 +506,7 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
     fn arr_new(_: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
         if let Some(Value::Integer(len)) = args.get(0) {
             let l = len.to_usize().unwrap_or(0);
-            Ok(ReturnValue::Value(Value::Array(Rc::new(RefCell::new(vec![Value::Nil; l])))))
+            Ok(ReturnValue::Value(Value::Array(som_ref(vec![Value::Nil; l]))))
         } else {
             Ok(ReturnValue::Value(Value::Nil))
         }
@@ -753,10 +752,10 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
 
     fn class_new(self_val: &Value, _: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
         if let Value::Class(cls) = self_val {
-            let instance = Rc::new(RefCell::new(SomObject {
+            let instance = som_ref(SomObject {
                 class: cls.clone(),
                 fields: vec![Value::Nil; cls.borrow().instance_fields.len()],
-            }));
+            });
             Ok(ReturnValue::Value(Value::Object(instance)))
         } else {
             Err(anyhow!("new can only be sent to classes"))
@@ -787,7 +786,7 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
             let fields: Vec<Value> = cls.borrow().instance_fields.iter()
                 .map(|f| Value::Symbol(f.clone()))
                 .collect();
-            Ok(ReturnValue::Value(Value::Array(Rc::new(RefCell::new(fields)))))
+            Ok(ReturnValue::Value(Value::Array(som_ref(fields))))
         } else {
             Ok(ReturnValue::Value(Value::Nil))
         }
@@ -799,7 +798,7 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
             let methods: Vec<Value> = cls_ref.method_order.iter()
                 .map(|name| Value::Method(cls_ref.methods.get(name).unwrap().clone()))
                 .collect();
-            Ok(ReturnValue::Value(Value::Array(Rc::new(RefCell::new(methods)))))
+            Ok(ReturnValue::Value(Value::Array(som_ref(methods))))
         } else {
             Ok(ReturnValue::Value(Value::Nil))
         }
@@ -823,7 +822,7 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
             let selectors: Vec<Value> = cls.borrow().methods.keys()
                 .map(|s| Value::Symbol(s.clone()))
                 .collect();
-            Ok(ReturnValue::Value(Value::Array(Rc::new(RefCell::new(selectors)))))
+            Ok(ReturnValue::Value(Value::Array(som_ref(selectors))))
         } else {
             Ok(ReturnValue::Value(Value::Nil))
         }

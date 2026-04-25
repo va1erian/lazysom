@@ -1,0 +1,12 @@
+TestEndsWith = (
+    run = (
+        | testName suffix |
+        testName := 'VectorTest'.
+        suffix := 'Test'.
+        ('length: ' + testName length asString) println.
+        ('sufL: ' + suffix length asString) println.
+        ('charAt: 7 = ' + (testName charAt: 7)) println.
+        ('charAt: 1 = ' + (suffix charAt: 1)) println.
+        ('is = : ' + ((testName charAt: 7) = (suffix charAt: 1)) asString) println.
+    )
+)

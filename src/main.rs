@@ -1,12 +1,13 @@
+#![allow(non_local_definitions)]  // gc_derive's Finalize macro
+#![allow(unsafe_op_in_unsafe_fn)] // custom_trace! macro under Rust 2024
+
 use std::path::PathBuf;
 use lazysom::universe::Universe;
 use lazysom::interpreter::Interpreter;
-use lazysom::object::{Value, SomObject};
+use lazysom::object::{Value, SomObject, som_ref};
 use lazysom::{compiler, bytecode, bytecode_interpreter};
 use anyhow::Result;
 use clap::Parser as ClapParser;
-use std::rc::Rc;
-use std::cell::RefCell;
 
 #[derive(ClapParser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -26,13 +27,13 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    
+
     let child = std::thread::Builder::new()
         .stack_size(128 * 1024 * 1024)
         .spawn(move || {
             run_with_args(args)
         })?;
-    
+
     child.join().map_err(|e| anyhow::anyhow!("Thread panicked: {:?}", e))?
 }
 
@@ -82,10 +83,10 @@ fn run_with_args(args: Args) -> Result<()> {
         universe.load_class("Metaclass")?;
         let sys_class = universe.load_class("System")?;
 
-        let system_obj = Rc::new(RefCell::new(SomObject {
+        let system_obj = som_ref(SomObject {
             class: sys_class.clone(),
             fields: Vec::new(),
-        }));
+        });
         universe.set_global("system", Value::Object(system_obj.clone()));
         universe.set_global("nil", Value::Nil);
         universe.set_global("true", Value::Boolean(true));
@@ -103,11 +104,11 @@ fn run_with_args(args: Args) -> Result<()> {
     universe.load_class("Class")?;
     universe.load_class("Metaclass")?;
     let sys_class = universe.load_class("System")?;
-    
-    let system_obj = Rc::new(RefCell::new(SomObject {
+
+    let system_obj = som_ref(SomObject {
         class: sys_class.clone(),
         fields: Vec::new(),
-    }));
+    });
     universe.set_global("system", Value::Object(system_obj.clone()));
     universe.set_global("nil", Value::Nil);
     universe.set_global("true", Value::Boolean(true));
@@ -120,19 +121,19 @@ fn run_with_args(args: Args) -> Result<()> {
         let path = PathBuf::from(filename);
         let class_name = path.file_stem().unwrap().to_str().unwrap();
         let main_class = universe.load_class(class_name)?;
-        
-        let instance = Rc::new(RefCell::new(SomObject {
+
+        let instance = som_ref(SomObject {
             class: main_class.clone(),
             fields: vec![Value::Nil; main_class.borrow().instance_fields.len()],
-        }));
+        });
 
         let som_args: Vec<Value> = args.rest.iter()
             .map(|s| Value::new_string(s.clone()))
             .collect();
-        let args_array = Value::Array(Rc::new(RefCell::new(som_args)));
+        let args_array = Value::Array(som_ref(som_args));
 
         println!("Running {}...", class_name);
-        
+
         if main_class.borrow().methods.contains_key("run:") {
             interpreter.dispatch(Value::Object(instance), "run:", vec![args_array])?;
         } else {
@@ -151,24 +152,10 @@ fn run_with_args(args: Args) -> Result<()> {
                 Ok(line) => {
                     if line.trim() == "exit" { break; }
                     rl.add_history_entry(line.as_str())?;
-                    
-                    let mut parser = lazysom::parser::Parser::new(&line);
-                    match parser.parse_expression() {
-                        Ok(expr) => {
-                            let activation = Rc::new(RefCell::new(lazysom::object::Activation {
-                                holder: None,
-                                self_val: Value::Nil,
-                                args: std::collections::HashMap::new(),
-                                locals: std::collections::HashMap::new(),
-                                parent: None,
-                                is_active: true,
-                             }));
-                            match interpreter.evaluate_expression(&expr, activation) {
-                                Ok(val) => println!("{:?}", val),
-                                Err(e) => println!("Error: {}", e),
-                            }
-                        }
-                        Err(e) => println!("Parse Error: {}", e),
+
+                    match interpreter.evaluate_snippet(&line) {
+                        Ok(val) => println!("{:?}", val),
+                        Err(e) => println!("Error: {}", e),
                     }
                 }
                 Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => {
