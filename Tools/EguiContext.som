@@ -5,4 +5,7 @@ EguiContext = (
     handle: h = ( handle := h. )
 
     window: title do: block = primitive
+
+    isKeyDown: keyName = primitive
+    requestRepaint = primitive
 )
