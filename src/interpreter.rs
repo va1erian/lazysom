@@ -406,6 +406,7 @@ impl<'a> Interpreter<'a> {
             Value::Array(_) => self.universe.load_class("Array"),
             Value::Class(cls) => Ok(cls.borrow().class.as_ref().ok_or_else(|| anyhow!("Class has no metaclass"))?.clone()),
             Value::Block(_) => self.universe.load_class("Block"),
+            Value::CompiledBlock(_) => self.universe.load_class("Block"),
             Value::Symbol(_) => self.universe.load_class("Symbol"),
             Value::Method(m) => {
                 if m.borrow().is_primitive() {

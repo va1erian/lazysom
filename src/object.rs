@@ -20,6 +20,7 @@ pub enum Value {
     #[allow(dead_code)]
     Method(SomRef<SomMethod>),
     Block(SomRef<SomBlock>),
+    CompiledBlock(SomRef<CompiledBlockInstance>),
 }
 
 impl PartialEq for Value {
@@ -36,6 +37,7 @@ impl PartialEq for Value {
             (Value::Array(a), Value::Array(b)) => Rc::ptr_eq(a, b),
             (Value::Method(a), Value::Method(b)) => Rc::ptr_eq(a, b),
             (Value::Block(a), Value::Block(b)) => Rc::ptr_eq(a, b),
+            (Value::CompiledBlock(a), Value::CompiledBlock(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -131,6 +133,12 @@ impl PartialEq for MethodBody {
             _ => false,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompiledBlockInstance {
+    pub block: crate::bytecode::CompiledBlock,
+    pub context: Option<SomRef<crate::bytecode_interpreter::Frame>>,
 }
 
 #[derive(Debug, Derivative)]
