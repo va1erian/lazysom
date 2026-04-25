@@ -7,6 +7,105 @@ use num_bigint::BigInt;
 use num_traits::{ToPrimitive, Zero, Signed};
 use num_integer::Integer;
 
+
+    // GUI Primitives
+    fn gui_window_do(self_val: &Value, args: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
+        if let (Value::NativeHandle(ctx_ptr), Some(Value::String(title)), Some(Value::Block(block))) = (self_val, args.get(0), args.get(1)) {
+            let ctx = unsafe { &*(*ctx_ptr as *const eframe::egui::Context) };
+
+            let _closed = false;
+            let mut ret = Ok(ReturnValue::Value(Value::Nil));
+            eframe::egui::Window::new(title.borrow().as_str()).show(ctx, |ui| {
+                let ui_ptr = ui as *const eframe::egui::Ui as usize;
+                match interpreter.run_block(block.clone(), vec![Value::NativeHandle(ui_ptr)]) {
+                    Ok(res) => ret = Ok(res),
+                    Err(e) => ret = Err(e),
+                }
+            });
+            return ret;
+        }
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn gui_label(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        if let (Value::NativeHandle(ui_ptr), Some(Value::String(text))) = (self_val, args.get(0)) {
+            let ui = unsafe { &mut *(*ui_ptr as *mut eframe::egui::Ui) };
+            ui.label(text.borrow().as_str());
+        }
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn gui_button(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        if let (Value::NativeHandle(ui_ptr), Some(Value::String(text))) = (self_val, args.get(0)) {
+            let ui = unsafe { &mut *(*ui_ptr as *mut eframe::egui::Ui) };
+            let clicked = ui.button(text.borrow().as_str()).clicked();
+            return Ok(ReturnValue::Value(Value::Boolean(clicked)));
+        }
+        Ok(ReturnValue::Value(Value::Boolean(false)))
+    }
+
+    fn gui_text_edit_multiline(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        if let (Value::NativeHandle(ui_ptr), Some(Value::String(text_ref))) = (self_val, args.get(0)) {
+            let ui = unsafe { &mut *(*ui_ptr as *mut eframe::egui::Ui) };
+            let mut s = text_ref.borrow().clone();
+            ui.text_edit_multiline(&mut s);
+            *text_ref.borrow_mut() = s;
+        }
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn gui_horizontal(self_val: &Value, args: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
+        if let (Value::NativeHandle(ui_ptr), Some(Value::Block(block))) = (self_val, args.get(0)) {
+            let ui = unsafe { &mut *(*ui_ptr as *mut eframe::egui::Ui) };
+            let mut ret = Ok(ReturnValue::Value(Value::Nil));
+            ui.horizontal(|ui| {
+                let inner_ui_ptr = ui as *const eframe::egui::Ui as usize;
+                match interpreter.run_block(block.clone(), vec![Value::NativeHandle(inner_ui_ptr)]) {
+                    Ok(res) => ret = Ok(res),
+                    Err(e) => ret = Err(e),
+                }
+            });
+            return ret;
+        }
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn gui_vertical(self_val: &Value, args: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
+        if let (Value::NativeHandle(ui_ptr), Some(Value::Block(block))) = (self_val, args.get(0)) {
+            let ui = unsafe { &mut *(*ui_ptr as *mut eframe::egui::Ui) };
+            let mut ret = Ok(ReturnValue::Value(Value::Nil));
+            ui.vertical(|ui| {
+                let inner_ui_ptr = ui as *const eframe::egui::Ui as usize;
+                match interpreter.run_block(block.clone(), vec![Value::NativeHandle(inner_ui_ptr)]) {
+                    Ok(res) => ret = Ok(res),
+                    Err(e) => ret = Err(e),
+                }
+            });
+            return ret;
+        }
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn sys_evaluate(_self_val: &Value, args: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
+        if let Some(Value::String(code)) = args.get(0) {
+            match interpreter.evaluate_snippet(code.borrow().as_str()) {
+                Ok(val) => return Ok(ReturnValue::Value(val)),
+                Err(e) => return Ok(ReturnValue::Value(Value::new_string(format!("Error: {}", e)))),
+            }
+        }
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn sys_class_names(_self_val: &Value, _: Vec<Value>, universe: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        let globals = universe.globals.borrow();
+        let mut names = Vec::new();
+        for (name, val) in globals.iter() {
+            if let Value::Class(_) = val {
+                names.push(Value::Symbol(name.clone()));
+            }
+        }
+        Ok(ReturnValue::Value(Value::Array(som_ref(names))))
+    }
 pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Value>, &Universe, &Interpreter) -> Result<ReturnValue>> {
     let mut prims: std::collections::HashMap<String, fn(&Value, Vec<Value>, &Universe, &Interpreter) -> Result<ReturnValue>> = std::collections::HashMap::new();
 
@@ -448,6 +547,7 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
             Value::Method(m)  => Gc::as_ptr(m) as i64,
             Value::Block(b)   => Gc::as_ptr(b) as i64,
             Value::CompiledBlock(b) => Gc::as_ptr(b) as i64,
+            Value::NativeHandle(h) => *h as i64,
         };
         Ok(ReturnValue::Value(Value::Integer(BigInt::from(h & 0x7FFFFFFF))))
     }
@@ -738,6 +838,7 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
             }
             Value::Symbol(_) => "Symbol",
             Value::Method(_) => "Method",
+            Value::NativeHandle(_) => "Object",
         };
         Ok(ReturnValue::Value(Value::Class(universe.load_class(cls_name)?)))
     }
@@ -849,6 +950,7 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
                 Value::Object(obj) => Some(Value::Class(obj.borrow().class.clone())),
                 Value::Class(cls) => cls.borrow().class.as_ref().map(|mc| Value::Class(mc.clone())),
                 Value::Method(_) => universe.get_global("Method"),
+                Value::NativeHandle(_) => universe.get_global("Object"),
             };
 
             while let Some(Value::Class(cls)) = cls_opt {
@@ -1262,5 +1364,14 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
     prims.insert("True>>not".to_string(), true_not);
     prims.insert("False>>not".to_string(), false_not);
 
+
+    prims.insert("EguiContext>>window:do:".to_string(), gui_window_do);
+    prims.insert("EguiUi>>label:".to_string(), gui_label);
+    prims.insert("EguiUi>>button:".to_string(), gui_button);
+    prims.insert("EguiUi>>textEditMultiline:".to_string(), gui_text_edit_multiline);
+    prims.insert("EguiUi>>primHorizontal:".to_string(), gui_horizontal);
+    prims.insert("EguiUi>>primVertical:".to_string(), gui_vertical);
+    prims.insert("System>>evaluate:".to_string(), sys_evaluate);
+    prims.insert("System>>classNames".to_string(), sys_class_names);
     prims
 }

@@ -169,6 +169,29 @@ impl Universe {
         }
 
         // 3. Assemble methods
+
+        // Dynamically add IDE primitive stubs to System class
+        if def.name == "System" {
+            let eval_def = MethodDef {
+                signature: Signature::Keyword(vec![("evaluate:".to_string(), "code".to_string())]),
+                body: MethodBody::Primitive,
+            };
+            let eval_method = self.assemble_method(eval_def, cls.clone())?;
+            let sig1 = eval_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig1.clone(), crate::object::som_ref(eval_method));
+            cls.borrow_mut().method_order.push(sig1);
+
+            let class_names_def = MethodDef {
+                signature: Signature::Unary("classNames".to_string()),
+                body: MethodBody::Primitive,
+            };
+            let class_names_method = self.assemble_method(class_names_def, cls.clone())?;
+            let sig2 = class_names_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig2.clone(), crate::object::som_ref(class_names_method));
+            cls.borrow_mut().method_order.push(sig2);
+        }
+
+
         for m_def in def.instance_methods {
             let method = self.assemble_method(m_def, cls.clone())?;
             let sig = method.signature.clone();

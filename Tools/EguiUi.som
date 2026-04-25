@@ -1,0 +1,30 @@
+EguiUi = (
+    | handle |
+
+    handle = ( ^handle )
+    handle: h = ( handle := h. )
+
+    label: text = primitive
+    button: text = primitive
+    textEditMultiline: textRef = primitive
+
+    horizontal: block = (
+        self primHorizontal: [:nativePtr |
+            | ui |
+            ui := EguiUi new.
+            ui handle: nativePtr.
+            block value: ui
+        ]
+    )
+    primHorizontal: block = primitive
+
+    vertical: block = (
+        self primVertical: [:nativePtr |
+            | ui |
+            ui := EguiUi new.
+            ui handle: nativePtr.
+            block value: ui
+        ]
+    )
+    primVertical: block = primitive
+)

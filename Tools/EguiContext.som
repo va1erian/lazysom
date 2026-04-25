@@ -1,0 +1,8 @@
+EguiContext = (
+    | handle |
+
+    handle = ( ^handle )
+    handle: h = ( handle := h. )
+
+    window: title do: block = primitive
+)

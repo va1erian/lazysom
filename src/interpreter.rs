@@ -434,6 +434,7 @@ impl<'a> Interpreter<'a> {
                     self.universe.load_class("Method")
                 }
             }
+            Value::NativeHandle(_) => Err(anyhow!("Cannot get class of NativeHandle")),
         }
     }
 

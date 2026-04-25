@@ -143,6 +143,7 @@ impl<'a> BytecodeInterpreter<'a> {
             Value::CompiledBlock(_) => self.universe.load_class("Block"),
             Value::Symbol(_) => self.universe.load_class("Symbol"),
             Value::Method(_) => self.universe.load_class("Method"),
+            Value::NativeHandle(_) => Err(anyhow::anyhow!("NativeHandle has no class")),
         }
     }
 

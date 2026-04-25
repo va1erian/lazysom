@@ -12,3 +12,4 @@ pub mod primitives;
 pub mod bytecode;
 pub mod compiler;
 pub mod bytecode_interpreter;
+pub mod gui;
