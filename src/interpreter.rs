@@ -22,6 +22,25 @@ impl<'a> Interpreter<'a> {
         Self { universe, depth: std::cell::Cell::new(0) }
     }
 
+    pub fn evaluate_snippet(&self, code: &str) -> Result<Value> {
+        let mut parser = crate::parser::Parser::new(code);
+        let expr = parser.parse_expression()?;
+        let activation = Rc::new(RefCell::new(crate::object::Activation {
+            holder: None,
+            self_val: Value::Nil,
+            args: std::collections::HashMap::new(),
+            locals: std::collections::HashMap::new(),
+            parent: None,
+            is_active: true,
+        }));
+        let result = self.evaluate_expression(&expr, activation)?;
+        match result {
+            ReturnValue::Value(v) => Ok(v),
+            ReturnValue::NonLocalReturn(v, _) => Ok(v),
+            ReturnValue::Restart => Err(anyhow::anyhow!("Unexpected restart in snippet")),
+        }
+    }
+
     pub fn run_method_internal(&self, method: SomRef<SomMethod>, self_val: Value, args: Vec<Value>) -> Result<ReturnValue> {
         let m_ref = method.borrow();
         let body = m_ref.body.clone();

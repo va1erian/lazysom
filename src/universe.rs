@@ -37,6 +37,11 @@ impl Universe {
         }
     }
 
+    pub fn register_primitive(&mut self, class_name: &str, method_name: &str, func: fn(&Value, Vec<Value>, &Universe, &crate::interpreter::Interpreter) -> Result<crate::interpreter::ReturnValue>) {
+        let key = format!("{}>>{}", class_name, method_name);
+        self.primitives.insert(key, func);
+    }
+
     pub fn load_class(&self, name: &str) -> Result<SomRef<SomClass>> {
         if let Some(Value::Class(cls)) = self.globals.borrow().get(name) {
              if name == "Metaclass" && cls.borrow().class.is_some() && cls.borrow().super_class.is_none() && cls.borrow().methods.is_empty() {
