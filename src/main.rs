@@ -1,18 +1,8 @@
-mod lexer;
-mod ast;
-mod parser;
-mod object;
-mod universe;
-mod interpreter;
-mod primitives;
-mod bytecode;
-mod compiler;
-mod bytecode_interpreter;
-
 use std::path::PathBuf;
-use crate::universe::Universe;
-use crate::interpreter::Interpreter;
-use crate::object::{Value, SomObject};
+use lazysom::universe::Universe;
+use lazysom::interpreter::Interpreter;
+use lazysom::object::{Value, SomObject};
+use lazysom::{compiler, bytecode, bytecode_interpreter};
 use anyhow::Result;
 use clap::Parser as ClapParser;
 use std::rc::Rc;
@@ -162,10 +152,10 @@ fn run_with_args(args: Args) -> Result<()> {
                     if line.trim() == "exit" { break; }
                     rl.add_history_entry(line.as_str())?;
                     
-                    let mut parser = crate::parser::Parser::new(&line);
+                    let mut parser = lazysom::parser::Parser::new(&line);
                     match parser.parse_expression() {
                         Ok(expr) => {
-                            let activation = Rc::new(RefCell::new(crate::object::Activation {
+                            let activation = Rc::new(RefCell::new(lazysom::object::Activation {
                                 holder: None,
                                 self_val: Value::Nil,
                                 args: std::collections::HashMap::new(),

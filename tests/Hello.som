@@ -1,0 +1,3 @@
+Hello = (
+ rustGreeting: string = primitive
+)
