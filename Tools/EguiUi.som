@@ -4,6 +4,13 @@ EguiUi = (
     handle = ( ^handle )
     handle: h = ( handle := h. )
 
+    painter = (
+        | p |
+        p := EguiPainter new.
+        p handle: handle. "Pass the same native Ui pointer"
+        ^p
+    )
+
     label: text = primitive
     button: text = primitive
     textEditMultiline: textRef = primitive

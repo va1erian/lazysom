@@ -8,6 +8,110 @@ use num_traits::{ToPrimitive, Zero, Signed};
 use num_integer::Integer;
 
 
+    fn extract_f32(val: &Value) -> f32 {
+        match val {
+            Value::Integer(i) => i.to_f32().unwrap_or(0.0),
+            Value::Double(d) => *d as f32,
+            _ => 0.0,
+        }
+    }
+
+    fn extract_u8(val: &Value) -> u8 {
+        match val {
+            Value::Integer(i) => i.to_u8().unwrap_or(255),
+            Value::Double(d) => *d as u8,
+            _ => 255,
+        }
+    }
+
+    // GUI Primitives
+    fn gui_ctx_is_key_down(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        if let (Value::NativeHandle(ctx_ptr), Some(Value::String(key_str))) = (self_val, args.get(0)) {
+            let ctx = unsafe { &*(*ctx_ptr as *const eframe::egui::Context) };
+
+            let key = match key_str.borrow().as_str() {
+                "Left" => Some(eframe::egui::Key::ArrowLeft),
+                "Right" => Some(eframe::egui::Key::ArrowRight),
+                "Up" => Some(eframe::egui::Key::ArrowUp),
+                "Down" => Some(eframe::egui::Key::ArrowDown),
+                "Space" => Some(eframe::egui::Key::Space),
+                "A" => Some(eframe::egui::Key::A),
+                "D" => Some(eframe::egui::Key::D),
+                "W" => Some(eframe::egui::Key::W),
+                "S" => Some(eframe::egui::Key::S),
+                _ => None,
+            };
+
+            if let Some(k) = key {
+                let is_down = ctx.input(|i| i.key_down(k));
+                return Ok(ReturnValue::Value(Value::Boolean(is_down)));
+            }
+        }
+        Ok(ReturnValue::Value(Value::Boolean(false)))
+    }
+
+    fn gui_ctx_request_repaint(self_val: &Value, _: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        if let Value::NativeHandle(ctx_ptr) = self_val {
+            let ctx = unsafe { &*(*ctx_ptr as *const eframe::egui::Context) };
+            ctx.request_repaint();
+        }
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn gui_painter_fill_rect(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        if let Value::NativeHandle(ui_ptr) = self_val {
+            let ui = unsafe { &mut *(*ui_ptr as *mut eframe::egui::Ui) };
+
+            let x = extract_f32(&args[0]); let y = extract_f32(&args[1]);
+            let w = extract_f32(&args[2]); let h = extract_f32(&args[3]);
+            let r = extract_u8(&args[4]);  let g = extract_u8(&args[5]);
+            let b = extract_u8(&args[6]);  let a = extract_u8(&args[7]);
+
+            let rect = eframe::egui::Rect::from_min_size(
+                eframe::egui::pos2(x, y),
+                eframe::egui::vec2(w, h)
+            );
+            let color = eframe::egui::Color32::from_rgba_unmultiplied(r, g, b, a);
+
+            ui.painter().rect_filled(rect, 0.0, color);
+        }
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn gui_painter_fill_circle(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        if let Value::NativeHandle(ui_ptr) = self_val {
+            let ui = unsafe { &mut *(*ui_ptr as *mut eframe::egui::Ui) };
+
+            let x = extract_f32(&args[0]); let y = extract_f32(&args[1]);
+            let radius = extract_f32(&args[2]);
+            let r = extract_u8(&args[3]); let g = extract_u8(&args[4]);
+            let b = extract_u8(&args[5]); let a = extract_u8(&args[6]);
+
+            let color = eframe::egui::Color32::from_rgba_unmultiplied(r, g, b, a);
+
+            ui.painter().circle_filled(eframe::egui::pos2(x, y), radius, color);
+        }
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn gui_painter_draw_line(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        if let Value::NativeHandle(ui_ptr) = self_val {
+            let ui = unsafe { &mut *(*ui_ptr as *mut eframe::egui::Ui) };
+
+            let x1 = extract_f32(&args[0]); let y1 = extract_f32(&args[1]);
+            let x2 = extract_f32(&args[2]); let y2 = extract_f32(&args[3]);
+            let width = extract_f32(&args[4]);
+            let r = extract_u8(&args[5]); let g = extract_u8(&args[6]);
+            let b = extract_u8(&args[7]); let a = extract_u8(&args[8]);
+
+            let color = eframe::egui::Color32::from_rgba_unmultiplied(r, g, b, a);
+            let stroke = eframe::egui::Stroke::new(width, color);
+
+            ui.painter().line_segment([eframe::egui::pos2(x1, y1), eframe::egui::pos2(x2, y2)], stroke);
+        }
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
     // GUI Primitives
     fn gui_window_do(self_val: &Value, args: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
         if let (Value::NativeHandle(ctx_ptr), Some(Value::String(title)), Some(Value::Block(block))) = (self_val, args.get(0), args.get(1)) {
@@ -1365,6 +1469,11 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
     prims.insert("False>>not".to_string(), false_not);
 
 
+    prims.insert("EguiContext>>isKeyDown:".to_string(), gui_ctx_is_key_down);
+    prims.insert("EguiContext>>requestRepaint".to_string(), gui_ctx_request_repaint);
+    prims.insert("EguiPainter>>fillRectX:y:w:h:r:g:b:a:".to_string(), gui_painter_fill_rect);
+    prims.insert("EguiPainter>>fillCircleX:y:radius:r:g:b:a:".to_string(), gui_painter_fill_circle);
+    prims.insert("EguiPainter>>drawLineX1:y1:x2:y2:width:r:g:b:a:".to_string(), gui_painter_draw_line);
     prims.insert("EguiContext>>window:do:".to_string(), gui_window_do);
     prims.insert("EguiUi>>label:".to_string(), gui_label);
     prims.insert("EguiUi>>button:".to_string(), gui_button);

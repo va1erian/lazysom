@@ -1,0 +1,9 @@
+"Tools/EguiPainter.som"
+EguiPainter = (
+    | handle |
+    handle: h = ( handle := h. )
+
+    fillRectX: x y: y w: w h: h r: r g: g b: b a: a = primitive
+    fillCircleX: x y: y radius: rad r: r g: g b: b a: a = primitive
+    drawLineX1: x1 y1: y1 x2: x2 y2: y2 width: width r: r g: g b: b a: a = primitive
+)
