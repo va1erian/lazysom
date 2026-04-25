@@ -83,3 +83,85 @@ The equivalent operations to pop from the stack and store into a variable exist:
     - A Frame contains an operand stack, local variables, arguments, the instruction pointer (`ip`), and the enclosing `context` (if it's a block).
 4. **Dispatch:** When a `Send` instruction happens, pop `N` arguments, then pop the receiver. Lookup the method in the receiver's class or superclasses. Execute the method by creating a Frame and running the inner instruction loop.
 5. **Primitive Mapping:** Since the Image doesn't contain Rust closures, primitive methods are flagged with `is_primitive = true`. The interpreter must map these primitive methods (`Object>>==`, `Integer>>+`, etc) to native Rust implementations.
+
+## Primitives Needed by the VM
+
+When executing an image, the `BytecodeInterpreter` expects the following primitives (mapped as `Class>>methodName`) to be implemented natively by the VM environment in order for the standard SOM classes and examples to function correctly:
+
+* `Object>>==`
+* `Object>>hashcode`
+* `Object>>objectSize`
+* `Object>>perform:`
+* `Object>>perform:inSuperclass:`
+* `Object>>perform:withArguments:`
+* `Object>>perform:withArguments:inSuperclass:`
+* `Object>>instVarAt:`
+* `Object>>instVarAt:put:`
+* `Object>>instVarNamed:`
+* `Object>>class`
+* `Class>>new`
+* `Class>>name`
+* `Class>>superclass`
+* `Class>>fields`
+* `Class>>methods`
+* `Metaclass>>new`
+* `String>>concatenate:`
+* `String>>asSymbol`
+* `String>>length`
+* `String>>=`
+* `String>>substringFrom:to:`
+* `String>>hashcode`
+* `String>>isWhiteSpace`
+* `String>>isLetters`
+* `String>>isDigits`
+* `Array>>at:`
+* `Array>>at:put:`
+* `Array>>length`
+* `Block>>restart`
+* `Integer>>+`
+* `Integer>>-`
+* `Integer>>*`
+* `Integer>>/`
+* `Integer>>//`
+* `Integer>>%`
+* `Integer>>&`
+* `Integer>>=`
+* `Integer>><`
+* `Integer>><=`
+* `Integer>>>`
+* `Integer>>>=`
+* `Integer>>asString`
+* `Integer>>as32BitSignedValue`
+* `Integer>>as32BitUnsignedValue`
+* `Integer>>fromString:`
+* `Double>>+`
+* `Double>>-`
+* `Double>>*`
+* `Double>>/`
+* `Double>>%`
+* `Double>>=`
+* `Double>><`
+* `Double>><=`
+* `Double>>>`
+* `Double>>>=`
+* `Double>>asString`
+* `Double>>asInteger`
+* `Double>>cos`
+* `Double>>sin`
+* `Double>>round`
+* `Double>>PositiveInfinity`
+* `Double>>fromString:`
+* `Method>>signature`
+* `Method>>holder`
+* `Method>>invokeOn:with:`
+* `System>>printString:`
+* `System>>printNewline`
+* `System>>errorPrint:`
+* `System>>errorPrintln:`
+* `System>>time`
+* `System>>ticks`
+* `System>>fullGC`
+* `System>>global:`
+* `System>>global:put:`
+* `System>>load:`
+* `System>>exit:`
