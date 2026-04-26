@@ -1,0 +1,13 @@
+<<<<<<< SEARCH
+    prims.insert("System>>evaluate:".to_string(), sys_evaluate);
+    prims.insert("System>>classNames".to_string(), sys_class_names);
+
+    prims.insert("AsyncIO class>>processEvents".to_string(), async_process_events);
+=======
+    prims.insert("System>>evaluate:".to_string(), sys_evaluate);
+    prims.insert("System>>classNames".to_string(), sys_class_names);
+    prims.insert("System>>serialize:format:".to_string(), sys_serialize_format);
+    prims.insert("System>>deserialize:format:".to_string(), sys_deserialize_format);
+
+    prims.insert("AsyncIO class>>processEvents".to_string(), async_process_events);
+>>>>>>> REPLACE

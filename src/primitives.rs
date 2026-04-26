@@ -667,6 +667,99 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
         Ok(ReturnValue::Value(Value::Boolean(true)))
     }
 
+    fn sys_serialize_format(_: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        if args.len() != 2 {
+            return Ok(ReturnValue::Value(Value::Nil));
+        }
+        let obj = &args[0];
+        let format_val = &args[1];
+
+        let format_str = match format_val {
+            Value::String(s) => s.borrow().clone(),
+            Value::Symbol(s) => s.clone(),
+            _ => return Ok(ReturnValue::Value(Value::Nil)),
+        };
+
+        if format_str == "json" {
+            match crate::serialize::to_json(obj) {
+                Ok(s) => Ok(ReturnValue::Value(Value::new_string(s))),
+                Err(_) => Ok(ReturnValue::Value(Value::Nil)),
+            }
+        } else if format_str == "msgpack" {
+            // We'd return a ByteArray here, but we can return it as a string of bytes for simplicity,
+            // or an Array of integers. Let's return an array of integers representing the bytes.
+            match crate::serialize::to_msgpack(obj) {
+                Ok(bytes) => {
+                    let elements = bytes.into_iter().map(|b| Value::Integer(num_bigint::BigInt::from(b))).collect();
+                    Ok(ReturnValue::Value(Value::Array(crate::object::som_ref(elements))))
+                }
+                Err(_) => Ok(ReturnValue::Value(Value::Nil)),
+            }
+        } else {
+            Ok(ReturnValue::Value(Value::Nil))
+        }
+    }
+
+    fn sys_deserialize_format(_: &Value, args: Vec<Value>, universe: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        if args.len() != 2 {
+            return Ok(ReturnValue::Value(Value::Nil));
+        }
+        let data = &args[0];
+        let format_val = &args[1];
+
+        let format_str = match format_val {
+            Value::String(s) => s.borrow().clone(),
+            Value::Symbol(s) => s.clone(),
+            _ => return Ok(ReturnValue::Value(Value::Nil)),
+        };
+
+        if format_str == "json" {
+            let json_str = match data {
+                Value::String(s) => s.borrow().clone(),
+                Value::Symbol(s) => s.clone(),
+                _ => return Ok(ReturnValue::Value(Value::Nil)),
+            };
+
+            let ir: crate::serialize::SerializedValue = match serde_json::from_str(&json_str) {
+                Ok(v) => v,
+                Err(_) => return Ok(ReturnValue::Value(Value::Nil)),
+            };
+
+            let mut deserializer = crate::serialize::SomDeserializer::new(universe);
+            match deserializer.deserialize(&ir) {
+                Ok(val) => Ok(ReturnValue::Value(val)),
+                Err(_) => Ok(ReturnValue::Value(Value::Nil)),
+            }
+        } else if format_str == "msgpack" {
+            let bytes = match data {
+                Value::Array(arr) => {
+                    arr.borrow().iter().filter_map(|v| {
+                        if let Value::Integer(i) = v {
+                            use num_traits::ToPrimitive;
+                            i.to_u8()
+                        } else {
+                            None
+                        }
+                    }).collect::<Vec<u8>>()
+                }
+                _ => return Ok(ReturnValue::Value(Value::Nil)),
+            };
+
+            let ir: crate::serialize::SerializedValue = match rmp_serde::from_slice(&bytes) {
+                Ok(v) => v,
+                Err(_) => return Ok(ReturnValue::Value(Value::Nil)),
+            };
+
+            let mut deserializer = crate::serialize::SomDeserializer::new(universe);
+            match deserializer.deserialize(&ir) {
+                Ok(val) => Ok(ReturnValue::Value(val)),
+                Err(_) => Ok(ReturnValue::Value(Value::Nil)),
+            }
+        } else {
+            Ok(ReturnValue::Value(Value::Nil))
+        }
+    }
+
     fn sys_load_file(_: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
         if let Some(arg) = args.get(0) {
             let file_name = match arg {
@@ -1843,6 +1936,8 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
     prims.insert("EguiUi>>primVertical:".to_string(), gui_vertical);
     prims.insert("System>>evaluate:".to_string(), sys_evaluate);
     prims.insert("System>>classNames".to_string(), sys_class_names);
+    prims.insert("System>>serialize:format:".to_string(), sys_serialize_format);
+    prims.insert("System>>deserialize:format:".to_string(), sys_deserialize_format);
 
     prims.insert("AsyncIO class>>processEvents".to_string(), async_process_events);
     prims.insert("AsyncFile class>>read:then:error:".to_string(), async_file_read);
