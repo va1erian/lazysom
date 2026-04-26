@@ -1,0 +1,37 @@
+PingClientDemo = Object (
+    run = (
+        | done port |
+        done := false.
+        port := 9999.
+
+        '--- Simple PING Client Demo ---' println.
+
+        "We start a dummy server just to echo to our client"
+        AsyncTcpSocket listenOn: '127.0.0.1' port: port then: [:listener |
+            'Dummy Server listening.' println.
+            AsyncTcpSocket accept: listener then: [:socket |
+                socket readThen: [:data |
+                    'Dummy Server received: ' print. data println.
+                    socket write: 'PONG from server' then: [] error: [].
+                ] error: [:err | ].
+            ] error: [:err | ].
+
+            "Now the actual Client Demo"
+            'Client connecting...' println.
+            AsyncTcpSocket connectTo: '127.0.0.1' port: port then: [:client |
+                'Client connected! Sending PING...' println.
+
+                client write: 'PING' then: [
+                    client readThen: [:resp |
+                        'Client received response: ' print. resp println.
+                        done := true.
+                    ] error: [:err | err println. done := true.].
+                ] error: [:err | err println. done := true.].
+            ] error: [:err | err println. done := true.].
+
+        ] error: [:err | 'Listen failed: ' print. err println. done := true.].
+
+        [ done ] whileFalse: [ AsyncIO processEvents ].
+        'Ping Client Demo Finished.' println.
+    )
+)

@@ -1,0 +1,17 @@
+AsyncIO = Object (
+    ----
+    processEvents = primitive
+
+    pollEvents = (
+        ^ self processEvents
+    )
+
+    waitForEvents = (
+        "In a real system this would block, but here we just poll in a tight loop."
+        "Actually, we could just yield, but since lazysom is single-threaded, we just poll."
+        [ self processEvents ] whileFalse: [
+            "Wait"
+            "This can spin, but let's assume it processes at least one event eventually"
+        ]
+    )
+)

@@ -49,6 +49,7 @@ fn run_with_args(args: Args) -> Result<()> {
     let mut classpath = vec![
         PathBuf::from("SOM/Smalltalk"),
         PathBuf::from("SOM/TestSuite"),
+        PathBuf::from("Async"),
         PathBuf::from("."),
     ];
     if let Some(cp) = args.classpath {

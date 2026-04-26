@@ -1,0 +1,29 @@
+EditorDemo = Object (
+    run = (
+        | done content file |
+        done := false.
+        file := 'demo_file.txt'.
+
+        '--- Simple Async File Editor Demo ---' println.
+
+        AsyncFile write: file content: 'Hello this is an initial text.' then: [
+            '1. File created with initial text.' println.
+
+            AsyncFile read: file then: [:c |
+                '2. Current file content: ' print. c println.
+
+                AsyncFile write: file content: c + '\nAnd this is a new line appended.' then: [
+                    '3. File appended.' println.
+
+                    AsyncFile read: file then: [:c2 |
+                        '4. Final file content: ' print. c2 println.
+                        done := true.
+                    ] error: [:err | err println. done := true.].
+                ] error: [:err | err println. done := true.].
+            ] error: [:err | err println. done := true.].
+        ] error: [:err | err println. done := true.].
+
+        [ done ] whileFalse: [ AsyncIO processEvents ].
+        'Editor Demo Finished.' println.
+    )
+)
