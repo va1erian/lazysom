@@ -1,15 +1,41 @@
 use std::collections::HashMap;
-use std::cell::RefCell;
+use std::cell::{RefCell, Cell};
 use std::path::PathBuf;
+use std::sync::{mpsc, Arc};
 use crate::object::*;
 use crate::parser::Parser;
 use crate::ast::{ClassDef, MethodDef, MethodBody, Signature};
 use anyhow::{Result, anyhow};
+use tokio::runtime::Runtime;
+
+pub enum AsyncResult {
+    SuccessNil,
+    SuccessString(String),
+    SuccessHandle(usize),
+    Error(String),
+}
+
+pub struct AsyncEvent {
+    pub callback_id: u64,
+    pub result: AsyncResult,
+}
+
+pub struct AsyncCallbacks {
+    pub success_block: Value,
+    pub error_block: Value,
+}
 
 pub struct Universe {
     pub globals: RefCell<HashMap<String, Value>>,
     pub classpath: Vec<PathBuf>,
     pub primitives: HashMap<String, fn(&Value, Vec<Value>, &Universe, &crate::interpreter::Interpreter) -> Result<crate::interpreter::ReturnValue>>,
+
+    // Async support
+    pub tokio_rt: Arc<Runtime>,
+    pub async_tx: mpsc::Sender<AsyncEvent>,
+    pub async_rx: RefCell<mpsc::Receiver<AsyncEvent>>,
+    pub async_callbacks: RefCell<HashMap<u64, AsyncCallbacks>>,
+    pub next_async_id: Cell<u64>,
 }
 
 impl Universe {
@@ -29,10 +55,18 @@ impl Universe {
         metaclass.borrow_mut().class = Some(metaclass.clone());
         globals.insert("Metaclass".to_string(), Value::Class(metaclass));
 
+        let tokio_rt = Arc::new(Runtime::new().expect("Failed to create tokio runtime"));
+        let (tx, rx) = mpsc::channel();
+
         Self {
             globals: RefCell::new(globals),
             classpath,
             primitives: crate::primitives::get_primitives(),
+            tokio_rt,
+            async_tx: tx,
+            async_rx: RefCell::new(rx),
+            async_callbacks: RefCell::new(HashMap::new()),
+            next_async_id: Cell::new(1),
         }
     }
 

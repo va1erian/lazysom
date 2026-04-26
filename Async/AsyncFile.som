@@ -1,0 +1,5 @@
+AsyncFile = Object (
+    ----
+    read: path then: successBlock error: errorBlock = primitive
+    write: path content: data then: successBlock error: errorBlock = primitive
+)

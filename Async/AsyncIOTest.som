@@ -1,0 +1,88 @@
+AsyncIOTest = Object (
+    run = (
+        self testFileIO.
+        self testTcpIO.
+        'All Async tests passed!' println.
+    )
+
+    testFileIO = (
+        | testFile done contentRead |
+        testFile := 'test_file_io.txt'.
+        done := false.
+
+        AsyncFile write: testFile content: 'Testing 123' then: [
+            AsyncFile read: testFile then: [:content |
+                contentRead := content.
+                done := true.
+            ] error: [:err |
+                'Error: ' print. err println.
+                done := true.
+            ].
+        ] error: [:err |
+            'Error: ' print. err println.
+            done := true.
+        ].
+
+        [ done ] whileFalse: [ AsyncIO processEvents ].
+
+        (contentRead = 'Testing 123') ifFalse: [
+            self error: 'testFileIO failed: content mismatch'.
+        ].
+
+        'testFileIO passed.' println.
+    )
+
+    testTcpIO = (
+        | done serverSocket clientSocket acceptedSocket receivedData port |
+        done := false.
+        port := 8888.
+        receivedData := ''.
+
+        "Start listener"
+        AsyncTcpSocket listenOn: '127.0.0.1' port: port then: [:listener |
+            serverSocket := listener.
+
+            "Accept connection"
+            AsyncTcpSocket accept: listener then: [:socket |
+                acceptedSocket := socket.
+
+                "Read from accepted socket"
+                socket readThen: [:data |
+                    receivedData := data.
+                    socket write: 'PONG' then: [] error: [].
+                ] error: [:err |].
+            ] error: [:err |].
+
+            "Connect client"
+            AsyncTcpSocket connectTo: '127.0.0.1' port: port then: [:client |
+                clientSocket := client.
+
+                "Write to client"
+                client write: 'PING' then: [
+                    "Read response"
+                    client readThen: [:resp |
+                        (resp = 'PONG') ifTrue: [
+                            done := true.
+                        ].
+                    ] error: [:err |].
+                ] error: [:err |].
+            ] error: [:err |].
+
+        ] error: [:err |
+            'Listen Error: ' print. err println.
+        ].
+
+        [ done ] whileFalse: [ AsyncIO processEvents ].
+
+        "Cleanup"
+        serverSocket close.
+        clientSocket close.
+        acceptedSocket close.
+
+        (receivedData = 'PING') ifFalse: [
+            self error: 'testTcpIO failed: receivedData mismatch'.
+        ].
+
+        'testTcpIO passed.' println.
+    )
+)

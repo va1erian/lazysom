@@ -1,0 +1,31 @@
+AsyncExample = Object (
+    run = (
+        | testFile done |
+        testFile := 'async_test.txt'.
+        done := false.
+
+        'Writing to file...' println.
+
+        AsyncFile write: testFile content: 'Hello Async World!' then: [
+            'File written successfully.' println.
+
+            AsyncFile read: testFile then: [:content |
+                'File read: ' print.
+                content println.
+                done := true.
+            ] error: [:err |
+                'Read error: ' print.
+                err println.
+                done := true.
+            ].
+        ] error: [:err |
+            'Write error: ' print.
+            err println.
+            done := true.
+        ].
+
+        'Waiting for events...' println.
+        [ done ] whileFalse: [ AsyncIO processEvents ].
+        'Done.' println.
+    )
+)

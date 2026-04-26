@@ -1,0 +1,58 @@
+AsyncTcpSocket = Object (
+    | handle |
+
+    handle = (
+        ^ handle
+    )
+
+    handle: val = (
+        handle := val.
+    )
+
+    readThen: successBlock error: errorBlock = (
+        AsyncTcpSocket read: handle then: successBlock error: errorBlock.
+    )
+
+    write: data then: successBlock error: errorBlock = (
+        AsyncTcpSocket write: handle content: data then: successBlock error: errorBlock.
+    )
+
+    close = (
+        AsyncTcpSocket close: handle.
+    )
+
+    ----
+    connectTo: host port: port then: successBlock error: errorBlock = (
+        ^ self primConnectTo: host port: port then: [:h |
+            | socket |
+            socket := self new.
+            socket handle: h.
+            successBlock value: socket
+        ] error: errorBlock
+    )
+
+    listenOn: host port: port then: successBlock error: errorBlock = (
+        ^ self primListenOn: host port: port then: [:h |
+            | socket |
+            socket := self new.
+            socket handle: h.
+            successBlock value: socket
+        ] error: errorBlock
+    )
+
+    accept: socket then: successBlock error: errorBlock = (
+        ^ self primAccept: socket handle then: [:h |
+            | newSocket |
+            newSocket := self new.
+            newSocket handle: h.
+            successBlock value: newSocket
+        ] error: errorBlock
+    )
+
+    primConnectTo: host port: port then: successBlock error: errorBlock = primitive
+    primListenOn: host port: port then: successBlock error: errorBlock = primitive
+    primAccept: handle then: successBlock error: errorBlock = primitive
+    read: handle then: successBlock error: errorBlock = primitive
+    write: handle content: data then: successBlock error: errorBlock = primitive
+    close: handle = primitive
+)
