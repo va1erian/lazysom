@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use gc::Gc;
+
 use serde::{Serialize, Deserialize};
 
 use crate::object::Value;
