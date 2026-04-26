@@ -256,6 +256,25 @@ impl Universe {
             cls.borrow_mut().methods.insert(sig2.clone(), crate::object::som_ref(class_names_method));
             cls.borrow_mut().method_order.push(sig2);
 
+
+            let serialize_def = MethodDef {
+                signature: Signature::Keyword(vec![("serialize:".to_string(), "object".to_string()), ("format:".to_string(), "formatString".to_string())]),
+                body: MethodBody::Primitive,
+            };
+            let serialize_method = self.assemble_method(serialize_def, cls.clone())?;
+            let sig3 = serialize_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig3.clone(), crate::object::som_ref(serialize_method));
+            cls.borrow_mut().method_order.push(sig3);
+
+            let deserialize_def = MethodDef {
+                signature: Signature::Keyword(vec![("deserialize:".to_string(), "data".to_string()), ("format:".to_string(), "formatString".to_string())]),
+                body: MethodBody::Primitive,
+            };
+            let deserialize_method = self.assemble_method(deserialize_def, cls.clone())?;
+            let sig4 = deserialize_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig4.clone(), crate::object::som_ref(deserialize_method));
+            cls.borrow_mut().method_order.push(sig4);
+
             let compile_def = MethodDef {
                 signature: Signature::Keyword(vec![("compileMethod:".to_string(), "code".to_string()), ("inClass:".to_string(), "cls".to_string())]),
                 body: MethodBody::Primitive,
@@ -339,6 +358,7 @@ impl Universe {
             let sig3 = current_frames_method.signature.clone();
             cls.borrow_mut().methods.insert(sig3.clone(), crate::object::som_ref(current_frames_method));
             cls.borrow_mut().method_order.push(sig3);
+
         }
 
 
