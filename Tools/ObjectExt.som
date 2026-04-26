@@ -1,7 +1,0 @@
-Object = (
-    halt = (
-        "We can trigger a debugger pause via primitive or just call doesNotUnderstand which pauses"
-        "Actually we can trigger a pause using the Debugger primitive or just trigger it via VM directly?"
-        "Wait, we have the VmState. We can just add a primitive System>>halt."
-    )
-)

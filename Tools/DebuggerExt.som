@@ -1,5 +1,0 @@
-Object = (
-    halt = (
-        Debugger new halt.
-    )
-)

@@ -2059,8 +2059,6 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
     prims.insert("System>>compileMethod:inClass:".to_string(), sys_compile_method_in_class);
     prims.insert("System>>installMethod:inClass:".to_string(), sys_install_method_in_class);
     prims.insert("System>>classNames".to_string(), sys_class_names);
-    prims.insert("System>>serialize:format:".to_string(), sys_serialize_format);
-    prims.insert("System>>deserialize:format:".to_string(), sys_deserialize_format);
 
     prims.insert("System>>serialize:format:".to_string(), sys_serialize_format);
     prims.insert("System>>deserialize:format:".to_string(), sys_deserialize_format);
