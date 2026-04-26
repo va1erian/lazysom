@@ -75,3 +75,229 @@ fn test_scripting_capabilities() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_serialization_primitives() -> Result<()> {
+    let classpath = vec![
+        std::path::PathBuf::from("SOM/Smalltalk"),
+        std::path::PathBuf::from("SOM/TestSuite"),
+    ];
+    let universe = Universe::new(classpath);
+    let interpreter = Interpreter::new(&universe);
+    universe.load_class("System")?;
+    universe.load_class("Array")?;
+    universe.load_class("String")?;
+    universe.load_class("Integer")?;
+
+    let system_obj = som_ref(SomObject {
+        class: universe.load_class("System")?,
+        fields: Vec::new(),
+    });
+    universe.set_global("system", Value::Object(system_obj.clone()));
+
+    let snippet_code = "[ | arr serialized deserialized |
+                arr := Array new: 3.
+        arr at: 1 put: 42.
+        arr at: 2 put: 'hello'.
+        arr at: 3 put: true.
+
+        serialized := system serialize: arr format: 'json'.
+        deserialized := system deserialize: serialized format: 'json'.
+
+        deserialized ] value
+    ";
+    let result = interpreter.evaluate_snippet(snippet_code)?;
+
+    match result {
+        Value::Array(arr) => {
+            let arr_ref = arr.borrow();
+            assert_eq!(arr_ref.len(), 3);
+
+            match &arr_ref[0] {
+                Value::Integer(i) => assert_eq!(i.to_string(), "42"),
+                _ => panic!("Expected Integer 42"),
+            }
+
+            match &arr_ref[1] {
+                Value::String(s) => assert_eq!(*s.borrow(), "hello"),
+                _ => panic!("Expected String 'hello'"),
+            }
+
+            match &arr_ref[2] {
+                Value::Boolean(b) => assert_eq!(*b, true),
+                _ => panic!("Expected Boolean true"),
+            }
+        }
+        _ => panic!("Expected Array value from snippet"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_serialization_circular_reference() -> Result<()> {
+    let classpath = vec![
+        std::path::PathBuf::from("SOM/Smalltalk"),
+        std::path::PathBuf::from("SOM/TestSuite"),
+    ];
+    let universe = Universe::new(classpath);
+    let interpreter = Interpreter::new(&universe);
+    universe.load_class("System")?;
+    universe.load_class("Array")?;
+
+    let system_obj = som_ref(SomObject {
+        class: universe.load_class("System")?,
+        fields: Vec::new(),
+    });
+    universe.set_global("system", Value::Object(system_obj.clone()));
+
+    let snippet_code = "[ | arr1 arr2 serialized deserialized |
+                arr1 := Array new: 1.
+        arr2 := Array new: 1.
+
+        arr1 at: 1 put: arr2.
+        arr2 at: 1 put: arr1.
+
+        serialized := system serialize: arr1 format: 'json'.
+        deserialized := system deserialize: serialized format: 'json'.
+
+        deserialized ] value
+    ";
+    let result = interpreter.evaluate_snippet(snippet_code)?;
+
+    match result {
+        Value::Array(arr) => {
+            let arr_ref = arr.borrow();
+            assert_eq!(arr_ref.len(), 1);
+
+            match &arr_ref[0] {
+                Value::Array(inner_arr) => {
+                    let inner_arr_ref = inner_arr.borrow();
+                    assert_eq!(inner_arr_ref.len(), 1);
+
+                    // Verify the circular reference logic works
+                    // The inner array's first element should point back to the outer array
+                    match &inner_arr_ref[0] {
+                        Value::Array(circular_arr) => {
+                             // Compare underlying pointers
+                             assert_eq!(gc::Gc::ptr_eq(&arr, circular_arr), true);
+                        }
+                        _ => panic!("Expected Array (circular reference)"),
+                    }
+                }
+                _ => panic!("Expected Array"),
+            }
+        }
+        _ => panic!("Expected Array value from snippet"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_serialization_shared_reference() -> Result<()> {
+    let classpath = vec![
+        std::path::PathBuf::from("SOM/Smalltalk"),
+        std::path::PathBuf::from("SOM/TestSuite"),
+    ];
+    let universe = Universe::new(classpath);
+    let interpreter = Interpreter::new(&universe);
+    universe.load_class("System")?;
+    universe.load_class("Array")?;
+    universe.load_class("String")?;
+
+    let system_obj = som_ref(SomObject {
+        class: universe.load_class("System")?,
+        fields: Vec::new(),
+    });
+    universe.set_global("system", Value::Object(system_obj.clone()));
+
+    let snippet_code = "[ | arr str serialized deserialized |
+                arr := Array new: 2.
+        str := 'shared'.
+
+        arr at: 1 put: str.
+        arr at: 2 put: str.
+
+        serialized := system serialize: arr format: 'json'.
+        deserialized := system deserialize: serialized format: 'json'.
+
+        deserialized ] value
+    ";
+    let result = interpreter.evaluate_snippet(snippet_code)?;
+
+    match result {
+        Value::Array(arr) => {
+            let arr_ref = arr.borrow();
+            assert_eq!(arr_ref.len(), 2);
+
+            if let (Value::String(s1), Value::String(s2)) = (&arr_ref[0], &arr_ref[1]) {
+                // Assert that they are the exact same pointer, preserving shared reference identity
+                assert_eq!(gc::Gc::ptr_eq(s1, s2), true);
+            } else {
+                panic!("Expected String elements");
+            }
+        }
+        _ => panic!("Expected Array value from snippet"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_serialization_msgpack() -> Result<()> {
+    let classpath = vec![
+        std::path::PathBuf::from("SOM/Smalltalk"),
+        std::path::PathBuf::from("SOM/TestSuite"),
+    ];
+    let universe = Universe::new(classpath);
+    let interpreter = Interpreter::new(&universe);
+    universe.load_class("System")?;
+    universe.load_class("Array")?;
+    universe.load_class("String")?;
+    universe.load_class("Integer")?;
+
+    let system_obj = som_ref(SomObject {
+        class: universe.load_class("System")?,
+        fields: Vec::new(),
+    });
+    universe.set_global("system", Value::Object(system_obj.clone()));
+
+    let snippet_code = "[ | arr serialized deserialized |
+                arr := Array new: 3.
+        arr at: 1 put: 42.
+        arr at: 2 put: 'hello'.
+        arr at: 3 put: true.
+
+        serialized := system serialize: arr format: 'msgpack'.
+        deserialized := system deserialize: serialized format: 'msgpack'.
+
+        deserialized ] value
+    ";
+    let result = interpreter.evaluate_snippet(snippet_code)?;
+
+    match result {
+        Value::Array(arr) => {
+            let arr_ref = arr.borrow();
+            assert_eq!(arr_ref.len(), 3);
+
+            match &arr_ref[0] {
+                Value::Integer(i) => assert_eq!(i.to_string(), "42"),
+                _ => panic!("Expected Integer 42"),
+            }
+
+            match &arr_ref[1] {
+                Value::String(s) => assert_eq!(*s.borrow(), "hello"),
+                _ => panic!("Expected String 'hello'"),
+            }
+
+            match &arr_ref[2] {
+                Value::Boolean(b) => assert_eq!(*b, true),
+                _ => panic!("Expected Boolean true"),
+            }
+        }
+        _ => panic!("Expected Array value from snippet"),
+    }
+
+    Ok(())
+}
