@@ -1,9 +1,10 @@
 LazyIde = (
-    | browser workspace |
+    | browser workspace debugger |
 
     initialize = (
         browser := Browser new initialize.
         workspace := Workspace new initialize.
+        debugger := Debugger new.
     )
 
     run = (
@@ -21,6 +22,10 @@ LazyIde = (
 
         ctx window: 'Workspace' do: [:winUi |
             workspace renderOn: winUi.
+        ].
+
+        ctx window: 'Debugger' do: [:winUi |
+            debugger renderOn: winUi.
         ].
     )
 )

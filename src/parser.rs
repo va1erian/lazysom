@@ -113,7 +113,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_method(&mut self) -> Result<MethodDef> {
+    pub fn parse_method(&mut self) -> Result<MethodDef> {
         let signature = self.parse_signature()?;
         self.expect(Token::Equal)?;
         

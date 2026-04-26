@@ -1,0 +1,35 @@
+Debugger = Object (
+    | selectedFrame |
+
+    resume = primitive
+    stepInto = primitive
+    currentFrames = primitive
+
+    renderOn: winUi = (
+        | frames |
+        frames := self currentFrames.
+
+        winUi horizontal: [:row |
+            row vertical: [:col |
+                (col button: '[Resume]') ifTrue: [
+                    self resume.
+                ].
+                (col button: '[Step Into]') ifTrue: [
+                    self stepInto.
+                ].
+            ].
+        ].
+
+        winUi horizontal: [:row |
+            row vertical: [:col |
+                (frames length = 0) ifTrue: [
+                    col label: 'No frames (Running or unhandled state)'.
+                ] ifFalse: [
+                    frames do: [:f |
+                        col label: f asString.
+                    ].
+                ].
+            ].
+        ].
+    )
+)
