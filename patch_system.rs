@@ -1,0 +1,10 @@
+use std::fs;
+
+fn main() {
+    let mut content = fs::read_to_string("src/universe.rs").unwrap();
+    content = content.replace(
+        "            let class_names_method = self.assemble_method(class_names_def, cls.clone())?;\n            let sig2 = class_names_method.signature.clone();\n            cls.borrow_mut().methods.insert(sig2.clone(), crate::object::som_ref(class_names_method));\n            cls.borrow_mut().method_order.push(sig2);\n        }",
+        "            let class_names_method = self.assemble_method(class_names_def, cls.clone())?;\n            let sig2 = class_names_method.signature.clone();\n            cls.borrow_mut().methods.insert(sig2.clone(), crate::object::som_ref(class_names_method));\n            cls.borrow_mut().method_order.push(sig2);\n\n            let serialize_def = MethodDef {\n                signature: Signature::Keyword(vec![(\"serialize:\".to_string(), \"object\".to_string()), (\"format:\".to_string(), \"formatString\".to_string())]),\n                body: MethodBody::Primitive,\n            };\n            let serialize_method = self.assemble_method(serialize_def, cls.clone())?;\n            let sig3 = serialize_method.signature.clone();\n            cls.borrow_mut().methods.insert(sig3.clone(), crate::object::som_ref(serialize_method));\n            cls.borrow_mut().method_order.push(sig3);\n\n            let deserialize_def = MethodDef {\n                signature: Signature::Keyword(vec![(\"deserialize:\".to_string(), \"data\".to_string()), (\"format:\".to_string(), \"formatString\".to_string())]),\n                body: MethodBody::Primitive,\n            };\n            let deserialize_method = self.assemble_method(deserialize_def, cls.clone())?;\n            let sig4 = deserialize_method.signature.clone();\n            cls.borrow_mut().methods.insert(sig4.clone(), crate::object::som_ref(deserialize_method));\n            cls.borrow_mut().method_order.push(sig4);\n        }"
+    );
+    fs::write("src/universe.rs", content).unwrap();
+}
