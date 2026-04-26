@@ -180,7 +180,7 @@ fn test_serialization_circular_reference() -> Result<()> {
                     match &inner_arr_ref[0] {
                         Value::Array(circular_arr) => {
                              // Compare underlying pointers
-                             assert_eq!(gc::Gc::as_ptr(&arr), gc::Gc::as_ptr(circular_arr));
+                             assert_eq!(gc::Gc::ptr_eq(&arr, circular_arr), true);
                         }
                         _ => panic!("Expected Array (circular reference)"),
                     }
@@ -233,7 +233,7 @@ fn test_serialization_shared_reference() -> Result<()> {
 
             if let (Value::String(s1), Value::String(s2)) = (&arr_ref[0], &arr_ref[1]) {
                 // Assert that they are the exact same pointer, preserving shared reference identity
-                assert_eq!(gc::Gc::as_ptr(s1), gc::Gc::as_ptr(s2));
+                assert_eq!(gc::Gc::ptr_eq(s1, s2), true);
             } else {
                 panic!("Expected String elements");
             }

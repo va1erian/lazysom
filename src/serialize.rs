@@ -54,7 +54,7 @@ impl SomSerializer {
             Value::Double(d) => SerializedValue::Double(*d),
             Value::Symbol(s) => SerializedValue::Symbol(s.clone()),
             Value::String(s) => {
-                let ptr = Gc::as_ptr(s) as usize;
+                let ptr = &**s as *const _ as usize as usize;
                 if let Some(&id) = self.seen_pointers.get(&ptr) {
                     SerializedValue::Ref(id)
                 } else {
@@ -63,7 +63,7 @@ impl SomSerializer {
                 }
             },
             Value::Array(arr) => {
-                let ptr = Gc::as_ptr(arr) as usize;
+                let ptr = &**arr as *const _ as usize as usize;
                 if let Some(&id) = self.seen_pointers.get(&ptr) {
                     return SerializedValue::Ref(id);
                 }
@@ -77,7 +77,7 @@ impl SomSerializer {
                 SerializedValue::DefArray { id, elements }
             },
             Value::Object(obj) => {
-                let ptr = Gc::as_ptr(obj) as usize;
+                let ptr = &**obj as *const _ as usize as usize;
                 if let Some(&id) = self.seen_pointers.get(&ptr) {
                     return SerializedValue::Ref(id);
                 }
