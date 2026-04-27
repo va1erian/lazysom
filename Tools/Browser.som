@@ -1,9 +1,23 @@
 Browser = (
-    | selectedClass classList |
+    | selectedClass classList newMethodCode |
 
     initialize = (
         classList := system classNames.
         selectedClass := nil.
+        newMethodCode := 'newMethod = ( ^ self )'.
+    )
+
+    saveMethod: code inClass: cls = (
+        | path res |
+        path := 'User/' + cls name asString + '.som'.
+        "Append the new method to the class file if it exists in User/"
+        "Since we don't have an AST decompiler, we just save the snippet to keep it persistent."
+        res := system appendText: ('\n    ' + code) to: path.
+        (res = true) ifTrue: [
+            system printString: 'Appended method to ' + path + '\n'.
+        ] ifFalse: [
+            system printString: 'Failed to append method to ' + path + '\n'.
+        ].
     )
 
     renderOn: winUi = (
@@ -22,6 +36,17 @@ Browser = (
                 selectedClass isNil ifFalse: [
                     selectedClass selectors do: [:sel |
                         col label: sel asString.
+                    ].
+
+                    col textEditMultiline: newMethodCode.
+
+                    (col button: '[Add Method]') ifTrue: [
+                        | m |
+                        m := system compileMethod: newMethodCode inClass: selectedClass.
+                        (m isNil) ifFalse: [
+                            system installMethod: m inClass: selectedClass.
+                            self saveMethod: newMethodCode inClass: selectedClass.
+                        ].
                     ].
                 ].
             ].

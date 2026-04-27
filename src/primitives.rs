@@ -58,6 +58,35 @@ use num_integer::Integer;
         Ok(ReturnValue::Value(Value::Nil))
     }
 
+    fn sys_compile_method_in_class(_self_val: &Value, args: Vec<Value>, universe: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        if let (Some(Value::String(code)), Some(Value::Class(cls))) = (args.get(0), args.get(1)) {
+            let code_str = code.borrow().clone();
+            let mut parser = crate::parser::Parser::new(&code_str);
+            match parser.parse_method() {
+                Ok(method_def) => {
+                    match universe.assemble_method(method_def, cls.clone()) {
+                        Ok(method) => return Ok(ReturnValue::Value(Value::Method(crate::object::som_ref(method)))),
+                        Err(e) => return Ok(ReturnValue::Value(Value::new_string(format!("Error compiling: {}", e)))),
+                    }
+                }
+                Err(e) => return Ok(ReturnValue::Value(Value::new_string(format!("Error parsing: {}", e)))),
+            }
+        }
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn sys_install_method_in_class(_self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        if let (Some(Value::Method(method)), Some(Value::Class(cls))) = (args.get(0), args.get(1)) {
+            let sig = method.borrow().signature.clone();
+            cls.borrow_mut().methods.insert(sig.clone(), method.clone());
+            if !cls.borrow().method_order.contains(&sig) {
+                cls.borrow_mut().method_order.push(sig);
+            }
+            return Ok(ReturnValue::Value(Value::Boolean(true)));
+        }
+        Ok(ReturnValue::Value(Value::Boolean(false)))
+    }
+
     fn gui_painter_fill_rect(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
         if let Value::NativeHandle(ui_ptr) = self_val {
             let ui = unsafe { &mut *(*ui_ptr as *mut eframe::egui::Ui) };
@@ -188,6 +217,70 @@ use num_integer::Integer;
             return ret;
         }
         Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn sys_file_read_text(_self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        if let Some(Value::String(path)) = args.get(0) {
+            let path_str = path.borrow().clone();
+            // Optional: verify it is in Tools/ or User/ ? Wait, reading can be from anywhere.
+            if let Ok(content) = std::fs::read_to_string(path_str) {
+                return Ok(ReturnValue::Value(Value::new_string(content)));
+            }
+        }
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn sys_file_append_text(_self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        // signature: appendText:to:
+        if let (Some(Value::String(content)), Some(Value::String(path))) = (args.get(0), args.get(1)) {
+            let path_str = path.borrow().clone();
+            let content_str = content.borrow().clone();
+
+            // Check constraint: Must write to Tools/ or User/
+            if path_str.contains("..") {
+                return Ok(ReturnValue::Value(Value::new_string("Error: Path traversal not allowed".to_string())));
+            }
+            if !path_str.starts_with("Tools/") && !path_str.starts_with("User/") {
+                return Ok(ReturnValue::Value(Value::new_string("Error: Can only write to Tools/ or User/ directory".to_string())));
+            }
+
+            use std::io::Write;
+            let file_res = std::fs::OpenOptions::new()
+                .write(true)
+                .append(true)
+                .create(true)
+                .open(&path_str);
+
+            if let Ok(mut file) = file_res {
+                if file.write_all(content_str.as_bytes()).is_ok() {
+                    return Ok(ReturnValue::Value(Value::Boolean(true)));
+                }
+            } else {
+                return Ok(ReturnValue::Value(Value::new_string("Error: Could not open file".to_string())));
+            }
+        }
+        Ok(ReturnValue::Value(Value::Boolean(false)))
+    }
+
+    fn sys_file_write_text(_self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        // The signature is `writeText:to:`, so arg 0 is content, arg 1 is path
+        if let (Some(Value::String(content)), Some(Value::String(path))) = (args.get(0), args.get(1)) {
+            let path_str = path.borrow().clone();
+            let content_str = content.borrow().clone();
+
+            // Check constraint: Must write to Tools/ or User/
+            if path_str.contains("..") {
+                return Ok(ReturnValue::Value(Value::new_string("Error: Path traversal not allowed".to_string())));
+            }
+            if !path_str.starts_with("Tools/") && !path_str.starts_with("User/") {
+                return Ok(ReturnValue::Value(Value::new_string("Error: Can only write to Tools/ or User/ directory".to_string())));
+            }
+
+            if std::fs::write(&path_str, content_str).is_ok() {
+                return Ok(ReturnValue::Value(Value::Boolean(true)));
+            }
+        }
+        Ok(ReturnValue::Value(Value::Boolean(false)))
     }
 
     fn sys_evaluate(_self_val: &Value, args: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
@@ -569,6 +662,34 @@ use num_integer::Integer;
             return Ok(ReturnValue::Value(Value::Nil));
         }
         Err(anyhow!("Invalid arguments for AsyncTcpSocket>>close:"))
+    }
+
+    fn dbg_halt(_self_val: &Value, _: Vec<Value>, universe: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        // Find the current active frame to pause on.
+        // For primitive, we don't have direct access to the `Frame`, but we can set Stepping so next bytecode instruction pauses.
+        *universe.vm_state.borrow_mut() = crate::universe::VmState::Stepping;
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn dbg_resume(_self_val: &Value, _: Vec<Value>, universe: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        *universe.vm_state.borrow_mut() = crate::universe::VmState::Running;
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn dbg_step_into(_self_val: &Value, _: Vec<Value>, universe: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        *universe.vm_state.borrow_mut() = crate::universe::VmState::Stepping;
+        Ok(ReturnValue::Value(Value::Nil))
+    }
+
+    fn dbg_current_frames(_self_val: &Value, _: Vec<Value>, universe: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+        let frames = universe.active_frames.borrow();
+        let mut ret = Vec::new();
+        // Return frames reversed (top of stack first)
+        for f in frames.iter().rev() {
+            let name = f.borrow().method_name.clone();
+            ret.push(Value::new_string(name));
+        }
+        Ok(ReturnValue::Value(Value::Array(crate::object::som_ref(ret))))
     }
 
 pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Value>, &Universe, &Interpreter) -> Result<ReturnValue>> {
@@ -1935,9 +2056,18 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
     prims.insert("EguiUi>>primHorizontal:".to_string(), gui_horizontal);
     prims.insert("EguiUi>>primVertical:".to_string(), gui_vertical);
     prims.insert("System>>evaluate:".to_string(), sys_evaluate);
+    prims.insert("System>>compileMethod:inClass:".to_string(), sys_compile_method_in_class);
+    prims.insert("System>>installMethod:inClass:".to_string(), sys_install_method_in_class);
     prims.insert("System>>classNames".to_string(), sys_class_names);
+
     prims.insert("System>>serialize:format:".to_string(), sys_serialize_format);
     prims.insert("System>>deserialize:format:".to_string(), sys_deserialize_format);
+
+
+    prims.insert("System>>readText:".to_string(), sys_file_read_text);
+    prims.insert("System>>writeText:to:".to_string(), sys_file_write_text);
+    prims.insert("System>>appendText:to:".to_string(), sys_file_append_text);
+
 
     prims.insert("AsyncIO class>>processEvents".to_string(), async_process_events);
     prims.insert("AsyncFile class>>read:then:error:".to_string(), async_file_read);
@@ -1948,5 +2078,12 @@ pub fn get_primitives() -> std::collections::HashMap<String, fn(&Value, Vec<Valu
     prims.insert("AsyncTcpSocket class>>read:then:error:".to_string(), async_tcp_read);
     prims.insert("AsyncTcpSocket class>>write:content:then:error:".to_string(), async_tcp_write);
     prims.insert("AsyncTcpSocket class>>close:".to_string(), async_tcp_close);
+
+    prims.insert("Debugger>>resume".to_string(), dbg_resume);
+    prims.insert("Debugger>>stepInto".to_string(), dbg_step_into);
+    prims.insert("Debugger>>currentFrames".to_string(), dbg_current_frames);
+    prims.insert("Debugger class>>halt".to_string(), dbg_halt);
+    prims.insert("Object>>halt".to_string(), dbg_halt);
+
     prims
 }

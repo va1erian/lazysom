@@ -405,6 +405,9 @@ impl<'a> Interpreter<'a> {
         match self.lookup_method(cls, selector) {
             Ok(method) => self.run_method_internal(method, receiver, args),
             Err(_) => {
+                if selector != "doesNotUnderstand:arguments:" && selector != "halt" {
+                    let _ = self.dispatch_internal(receiver.clone(), "halt", vec![]);
+                }
                 let sym = Value::Symbol(selector.to_string());
                 let arr = Value::Array(som_ref(args));
                 self.dispatch_internal(receiver, "doesNotUnderstand:arguments:", vec![sym, arr])

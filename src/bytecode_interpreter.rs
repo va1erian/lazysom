@@ -11,6 +11,23 @@ pub struct BytecodeInterpreter<'a> {
     pub depth: std::cell::Cell<usize>,
 }
 
+struct FrameGuard<'a> {
+    universe: &'a Universe,
+}
+
+impl<'a> FrameGuard<'a> {
+    fn new(universe: &'a Universe, frame: SomRef<Frame>) -> Self {
+        universe.push_frame(frame);
+        Self { universe }
+    }
+}
+
+impl<'a> Drop for FrameGuard<'a> {
+    fn drop(&mut self) {
+        self.universe.pop_frame();
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Finalize)]
 pub struct Frame {
     pub method_name: String,
@@ -210,7 +227,26 @@ impl<'a> BytecodeInterpreter<'a> {
     }
 
     fn execute_frame(&self, frame: SomRef<Frame>) -> Result<FrameResult> {
+        // Push frame to active stack for debugger (popped automatically on Drop)
+        let _guard = FrameGuard::new(self.universe, frame.clone());
+
         loop {
+            loop {
+                let state = self.universe.vm_state.borrow().clone();
+                match state {
+                    crate::universe::VmState::Paused(_) => {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    crate::universe::VmState::Stepping => {
+                        *self.universe.vm_state.borrow_mut() = crate::universe::VmState::Paused(frame.clone());
+                        break;
+                    }
+                    crate::universe::VmState::Running => {
+                        break;
+                    }
+                }
+            }
+
             let opcode = {
                 let f = frame.borrow();
                 if f.ip >= f.bytecodes.len() {
@@ -222,7 +258,10 @@ impl<'a> BytecodeInterpreter<'a> {
             frame.borrow_mut().ip += 1;
 
             match opcode {
-                Opcode::Halt => break,
+                Opcode::Halt => {
+                    *self.universe.vm_state.borrow_mut() = crate::universe::VmState::Paused(frame.clone());
+                    continue;
+                }
                 Opcode::Dup => {
                     let mut f = frame.borrow_mut();
                     let val = f.stack.last().unwrap().clone();

@@ -1,0 +1,8 @@
+File = Object (
+    "File class wrapper"
+
+    ----------------------------------
+
+    readText: path = primitive
+    writeText: content to: path = primitive
+)
