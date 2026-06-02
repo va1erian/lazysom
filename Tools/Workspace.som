@@ -1,22 +1,62 @@
 Workspace = (
-    | codeOutput codeInput |
+    | codeInput codeOutput runStatus |
+
+    codeInput = ( ^codeInput )
+    codeInput: val = ( codeInput := val. )
 
     initialize = (
-        codeInput := '"Type SOM code here"'.
+        codeInput := '"Write SOM code here. Click Evaluate to run asynchronously without blocking the UI.\nTry making a halt to trigger the Debugger, e.g.:"\n\n[ | x | \n  x := 42.\n  self halt.\n  x * 2\n] value'.
         codeOutput := ''.
+        runStatus := 'idle'.
     )
 
     renderOn: winUi = (
-        winUi label: 'Do It:'.
+        winUi heading: 'Interactive Workspace'.
+        winUi separator.
+        
+        winUi label: 'Write SOM Code Snippet:'.
         winUi textEditMultiline: codeInput.
 
-        (winUi button: 'Evaluate') ifTrue: [
-            | result |
-            result := system evaluate: codeInput.
-            codeOutput := result asString.
+        "Poll active background task status"
+        runStatus := system bgTaskStatus.
+
+        winUi horizontal: [:row |
+            runStatus = 'running' ifTrue: [
+                row label: '⚡ Running asynchronously in background VM...'.
+                (row button: '🛑 Abort Execution') ifTrue: [
+                    system bgTaskCommand: 'stop'.
+                ].
+            ] ifFalse: [
+                runStatus = 'paused' ifTrue: [
+                    row label: '⏸️ Paused at Breakpoint! Open the Debugger tab.'.
+                    (row button: '🛑 Terminate') ifTrue: [
+                        system bgTaskCommand: 'stop'.
+                    ].
+                ] ifFalse: [
+                    (row button: '🚀 Run Snippet') ifTrue: [
+                        system evaluateAsync: codeInput.
+                        codeOutput := 'Evaluating...'.
+                    ].
+                ].
+            ].
         ].
 
-        winUi label: 'Result:'.
-        winUi label: codeOutput.
+        winUi separator.
+        winUi heading: 'Result / Console Output'.
+
+        runStatus = 'completed' ifTrue: [
+            codeOutput := system bgTaskResult.
+        ].
+        runStatus = 'errored' ifTrue: [
+            codeOutput := '⚠️ RUNTIME ERROR:\n' + system bgTaskError.
+        ].
+
+        winUi group: [:box |
+            box scrollArea: [:scroll |
+                scroll vertical: [:col |
+                    col label: codeOutput.
+                ].
+            ].
+        ].
     )
 )

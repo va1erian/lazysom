@@ -301,3 +301,31 @@ fn test_serialization_msgpack() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_ide_classes_compilation() -> Result<()> {
+    let classpath = vec![
+        std::path::PathBuf::from("SOM/Smalltalk"),
+        std::path::PathBuf::from("SOM/TestSuite"),
+        std::path::PathBuf::from("Tools"),
+    ];
+    let universe = Universe::new(classpath);
+    universe.load_class("Object")?;
+    universe.load_class("Class")?;
+    universe.load_class("Metaclass")?;
+    universe.load_class("System")?;
+    
+    let browser_cls = universe.load_class("Browser")?;
+    let workspace_cls = universe.load_class("Workspace")?;
+    let debugger_cls = universe.load_class("Debugger")?;
+    let help_cls = universe.load_class("HelpPanel")?;
+    let ide_cls = universe.load_class("LazyIde")?;
+    
+    assert_eq!(browser_cls.borrow().name, "Browser");
+    assert_eq!(workspace_cls.borrow().name, "Workspace");
+    assert_eq!(debugger_cls.borrow().name, "Debugger");
+    assert_eq!(help_cls.borrow().name, "HelpPanel");
+    assert_eq!(ide_cls.borrow().name, "LazyIde");
+    
+    Ok(())
+}

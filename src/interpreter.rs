@@ -3,6 +3,24 @@ use crate::ast::*;
 use crate::universe::Universe;
 use anyhow::{Result, anyhow};
 use gc::Gc;
+use crate::vm_runner::{DebugCommand, DebugEvent, SerializedFrame, SerializedVariable};
+
+struct ActivationGuard<'a> {
+    universe: &'a Universe,
+}
+
+impl<'a> ActivationGuard<'a> {
+    fn new(universe: &'a Universe, act: SomRef<Activation>) -> Self {
+        universe.push_activation(act);
+        Self { universe }
+    }
+}
+
+impl<'a> Drop for ActivationGuard<'a> {
+    fn drop(&mut self) {
+        self.universe.pop_activation();
+    }
+}
 
 pub struct Interpreter<'a> {
     pub universe: &'a Universe,
@@ -26,6 +44,8 @@ impl<'a> Interpreter<'a> {
         let expr = parser.parse_expression()?;
         let activation = som_ref(crate::object::Activation {
             holder: None,
+            holder_method_name: None,
+            source: None,
             self_val: Value::Nil,
             args: std::collections::HashMap::new(),
             locals: std::collections::HashMap::new(),
@@ -61,8 +81,13 @@ impl<'a> Interpreter<'a> {
                     locals.insert(local_name.clone(), Value::Nil);
                 }
 
+                let method_sig = method.borrow().signature.clone();
+                let method_src = method.borrow().source.clone();
+
                 let activation = som_ref(Activation {
                     holder: Some(holder),
+                    holder_method_name: Some(method_sig),
+                    source: method_src,
                     self_val: self_val.clone(),
                     args: arg_map,
                     locals,
@@ -70,6 +95,7 @@ impl<'a> Interpreter<'a> {
                     is_active: true,
                 });
                 
+                let _guard = ActivationGuard::new(self.universe, activation.clone());
                 loop {
                     let res = self.evaluate_block(&block, activation.clone());
                     match res {
@@ -111,6 +137,8 @@ impl<'a> Interpreter<'a> {
     }
 
     pub fn evaluate_expression(&self, expr: &Expression, activation: SomRef<Activation>) -> Result<ReturnValue> {
+        self.check_debug_state()?;
+
         let depth = self.depth.get() + 1;
         self.depth.set(depth);
         if depth > 2000 {
@@ -233,7 +261,9 @@ impl<'a> Interpreter<'a> {
         }
 
         let activation = som_ref(Activation {
-            holder: None,
+            holder: block_ref.context.as_ref().and_then(|c| c.borrow().holder.clone()),
+            holder_method_name: Some("block".to_string()),
+            source: None,
             self_val: block_ref.context.as_ref().map(|c| c.borrow().self_val.clone()).unwrap_or(Value::Nil),
             args: arg_map,
             locals,
@@ -242,6 +272,7 @@ impl<'a> Interpreter<'a> {
         });
 
         drop(block_ref);
+        let _guard = ActivationGuard::new(self.universe, activation.clone());
         loop {
             match self.evaluate_block(&block.borrow().body, activation.clone())? {
                 ReturnValue::Restart => continue,
@@ -455,5 +486,135 @@ impl<'a> Interpreter<'a> {
             }
         }
         Err(anyhow!("Method {} not found in {} (started at {})", selector, cls.borrow().name, start_cls))
+    }
+
+    fn check_debug_state(&self) -> Result<()> {
+        if let (Some(rx), Some(tx)) = (&self.universe.dbg_cmd_rx, &self.universe.dbg_event_tx) {
+            let mut state = self.universe.vm_state.borrow().clone();
+            
+            if state == crate::universe::VmState::Stepping {
+                *self.universe.vm_state.borrow_mut() = crate::universe::VmState::Paused;
+                state = crate::universe::VmState::Paused;
+            }
+
+            if state == crate::universe::VmState::Paused {
+                let stack = self.serialize_stack();
+                let _ = tx.send(DebugEvent::Paused { stack });
+
+                loop {
+                    match rx.recv() {
+                        Ok(DebugCommand::Resume) => {
+                            *self.universe.vm_state.borrow_mut() = crate::universe::VmState::Running;
+                            let _ = tx.send(DebugEvent::Running);
+                            break;
+                        }
+                        Ok(DebugCommand::StepInto) => {
+                            *self.universe.vm_state.borrow_mut() = crate::universe::VmState::Stepping;
+                            let _ = tx.send(DebugEvent::Running);
+                            break;
+                        }
+                        Ok(DebugCommand::Stop) => {
+                            return Err(anyhow::anyhow!("Execution terminated by user"));
+                        }
+                        Ok(DebugCommand::Evaluate(_)) => {}
+                        Err(_) => {
+                            return Err(anyhow::anyhow!("Debug control channel disconnected"));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn serialize_stack(&self) -> Vec<SerializedFrame> {
+        let activations = self.universe.active_activations.borrow();
+        let mut stack = Vec::new();
+        for act in activations.iter().rev() {
+            let act_ref = act.borrow();
+            let method_name = act_ref.holder.as_ref()
+                .map(|h| format!("{}>>{}", h.borrow().name, act_ref.holder_method_name.clone().unwrap_or_else(|| "block".to_string())))
+                .unwrap_or_else(|| "block".to_string());
+            let class_name = act_ref.holder.as_ref()
+                .map(|h| h.borrow().name.clone())
+                .unwrap_or_else(|| "Block".to_string());
+
+            let receiver_str = format!("{:?}", act_ref.self_val);
+
+            let mut args = Vec::new();
+            for (name, val) in &act_ref.args {
+                args.push(SerializedVariable {
+                    name: name.clone(),
+                    val_type: self.value_type_str(val),
+                    val_str: format!("{:?}", val),
+                });
+            }
+            
+            let mut locals = Vec::new();
+            for (name, val) in &act_ref.locals {
+                locals.push(SerializedVariable {
+                    name: name.clone(),
+                    val_type: self.value_type_str(val),
+                    val_str: format!("{:?}", val),
+                });
+            }
+
+            if let Value::Object(obj) = &act_ref.self_val {
+                let cls = obj.borrow().class.clone();
+                let fields = &obj.borrow().fields;
+                for (idx, field_name) in cls.borrow().instance_fields.iter().enumerate() {
+                    if let Some(val) = fields.get(idx) {
+                        locals.push(SerializedVariable {
+                            name: format!("self.{}", field_name),
+                            val_type: self.value_type_str(val),
+                            val_str: format!("{:?}", val),
+                        });
+                    }
+                }
+            } else if let Value::Class(cls) = &act_ref.self_val {
+                if let Some(mc) = &cls.borrow().class {
+                    let fields = &cls.borrow().fields;
+                    for (idx, field_name) in mc.borrow().instance_fields.iter().enumerate() {
+                        if let Some(val) = fields.get(idx) {
+                            locals.push(SerializedVariable {
+                                name: format!("self.{}", field_name),
+                                val_type: self.value_type_str(val),
+                                val_str: format!("{:?}", val),
+                            });
+                        }
+                    }
+                }
+            }
+
+            let source = act_ref.source.clone();
+
+            stack.push(SerializedFrame {
+                name: method_name,
+                class_name,
+                receiver_str,
+                args,
+                locals,
+                source,
+            });
+        }
+        stack
+    }
+
+    fn value_type_str(&self, val: &Value) -> String {
+        match val {
+            Value::Nil => "Nil".to_string(),
+            Value::Boolean(_) => "Boolean".to_string(),
+            Value::Integer(_) => "Integer".to_string(),
+            Value::Double(_) => "Double".to_string(),
+            Value::String(_) => "String".to_string(),
+            Value::Symbol(_) => "Symbol".to_string(),
+            Value::Array(_) => "Array".to_string(),
+            Value::Object(o) => o.borrow().class.borrow().name.clone(),
+            Value::Class(c) => format!("{} class", c.borrow().name),
+            Value::Block(_) => "Block".to_string(),
+            Value::CompiledBlock(_) => "Block".to_string(),
+            Value::Method(_) => "Method".to_string(),
+            Value::NativeHandle(_) => "NativeHandle".to_string(),
+        }
     }
 }

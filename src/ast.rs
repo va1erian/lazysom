@@ -14,6 +14,7 @@ pub struct ClassDef {
 pub struct MethodDef {
     pub signature: Signature,
     pub body: MethodBody,
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

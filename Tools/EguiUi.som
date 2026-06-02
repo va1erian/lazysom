@@ -13,6 +13,7 @@ EguiUi = (
 
     label: text = primitive
     button: text = primitive
+    textEdit: textRef = primitive
     textEditMultiline: textRef = primitive
 
     horizontal: block = (
@@ -34,4 +35,42 @@ EguiUi = (
         ]
     )
     primVertical: block = primitive
+    
+    scrollArea: block = (
+        self primScrollArea: [:nativePtr |
+            | ui |
+            ui := EguiUi new.
+            ui handle: nativePtr.
+            block value: ui
+        ]
+    )
+    primScrollArea: block = primitive
+    
+    columns: count do: block = (
+        self primColumns: count do: [:colsArray |
+            block value: colsArray
+        ]
+    )
+    primColumns: count do: block = primitive
+
+    heading: text = primitive
+    separator = primitive
+
+    group: block = (
+        self primGroup: [:nativePtr |
+            | ui |
+            ui := EguiUi new.
+            ui handle: nativePtr.
+            block value: ui
+        ]
+    )
+    primGroup: block = primitive
+
+    comboBoxSelected: selected options: options do: block = (
+        self primComboBox: '' selected: selected options: options do: block
+    )
+    comboBox: label selected: selected options: options do: block = (
+        self primComboBox: label selected: selected options: options do: block
+    )
+    primComboBox: label selected: selected options: options do: block = primitive
 )

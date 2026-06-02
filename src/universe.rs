@@ -25,10 +25,10 @@ pub struct AsyncCallbacks {
     pub error_block: Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum VmState {
     Running,
-    Paused(crate::object::SomRef<crate::bytecode_interpreter::Frame>),
+    Paused,
     Stepping,
 }
 
@@ -47,6 +47,11 @@ pub struct Universe {
     // Debugger state
     pub vm_state: RefCell<VmState>,
     pub active_frames: RefCell<Vec<crate::object::SomRef<crate::bytecode_interpreter::Frame>>>,
+
+    // AST Debugger state
+    pub active_activations: RefCell<Vec<crate::object::SomRef<crate::object::Activation>>>,
+    pub dbg_cmd_rx: Option<std::sync::mpsc::Receiver<crate::vm_runner::DebugCommand>>,
+    pub dbg_event_tx: Option<std::sync::mpsc::Sender<crate::vm_runner::DebugEvent>>,
 }
 
 impl Universe {
@@ -80,6 +85,9 @@ impl Universe {
             next_async_id: Cell::new(1),
             vm_state: RefCell::new(VmState::Running),
             active_frames: RefCell::new(Vec::new()),
+            active_activations: RefCell::new(Vec::new()),
+            dbg_cmd_rx: None,
+            dbg_event_tx: None,
         }
     }
 
@@ -89,6 +97,14 @@ impl Universe {
 
     pub fn pop_frame(&self) {
         self.active_frames.borrow_mut().pop();
+    }
+
+    pub fn push_activation(&self, act: crate::object::SomRef<crate::object::Activation>) {
+        self.active_activations.borrow_mut().push(act);
+    }
+
+    pub fn pop_activation(&self) {
+        self.active_activations.borrow_mut().pop();
     }
 
     pub fn register_primitive(&mut self, class_name: &str, method_name: &str, func: fn(&Value, Vec<Value>, &Universe, &crate::interpreter::Interpreter) -> Result<crate::interpreter::ReturnValue>) {
@@ -141,6 +157,7 @@ impl Universe {
                                 holder: stub.clone(),
                                 parameters: vec![],
                                 body: crate::object::MethodBody::Primitive(|_, _, _, _| Ok(crate::interpreter::ReturnValue::Value(Value::Nil))),
+                                source: None,
                             }));
                         }
                         let res = self.assemble_class_into(class_def, stub.clone());
@@ -161,7 +178,7 @@ impl Universe {
         Err(anyhow!("Class {} not found in classpath", name))
     }
 
-    fn assemble_class_into(&self, def: ClassDef, cls: SomRef<SomClass>) -> Result<()> {
+    pub fn assemble_class_into(&self, def: ClassDef, cls: SomRef<SomClass>) -> Result<()> {
         let super_class = if let Some(super_name) = def.super_class {
             if super_name == "nil" {
                 None
@@ -229,6 +246,7 @@ impl Universe {
             let halt_def = MethodDef {
                 signature: Signature::Unary("halt".to_string()),
                 body: MethodBody::Primitive,
+                source: None,
             };
             let halt_method = self.assemble_method(halt_def, cls.clone())?;
             let sig_o = halt_method.signature.clone();
@@ -241,6 +259,7 @@ impl Universe {
             let eval_def = MethodDef {
                 signature: Signature::Keyword(vec![("evaluate:".to_string(), "code".to_string())]),
                 body: MethodBody::Primitive,
+                source: None,
             };
             let eval_method = self.assemble_method(eval_def, cls.clone())?;
             let sig1 = eval_method.signature.clone();
@@ -250,6 +269,7 @@ impl Universe {
             let class_names_def = MethodDef {
                 signature: Signature::Unary("classNames".to_string()),
                 body: MethodBody::Primitive,
+                source: None,
             };
             let class_names_method = self.assemble_method(class_names_def, cls.clone())?;
             let sig2 = class_names_method.signature.clone();
@@ -260,6 +280,7 @@ impl Universe {
             let serialize_def = MethodDef {
                 signature: Signature::Keyword(vec![("serialize:".to_string(), "object".to_string()), ("format:".to_string(), "formatString".to_string())]),
                 body: MethodBody::Primitive,
+                source: None,
             };
             let serialize_method = self.assemble_method(serialize_def, cls.clone())?;
             let sig3 = serialize_method.signature.clone();
@@ -269,6 +290,7 @@ impl Universe {
             let deserialize_def = MethodDef {
                 signature: Signature::Keyword(vec![("deserialize:".to_string(), "data".to_string()), ("format:".to_string(), "formatString".to_string())]),
                 body: MethodBody::Primitive,
+                source: None,
             };
             let deserialize_method = self.assemble_method(deserialize_def, cls.clone())?;
             let sig4 = deserialize_method.signature.clone();
@@ -278,6 +300,7 @@ impl Universe {
             let compile_def = MethodDef {
                 signature: Signature::Keyword(vec![("compileMethod:".to_string(), "code".to_string()), ("inClass:".to_string(), "cls".to_string())]),
                 body: MethodBody::Primitive,
+                source: None,
             };
             let compile_method = self.assemble_method(compile_def, cls.clone())?;
             let sig3 = compile_method.signature.clone();
@@ -287,15 +310,27 @@ impl Universe {
             let install_def = MethodDef {
                 signature: Signature::Keyword(vec![("installMethod:".to_string(), "method".to_string()), ("inClass:".to_string(), "cls".to_string())]),
                 body: MethodBody::Primitive,
+                source: None,
             };
             let install_method = self.assemble_method(install_def, cls.clone())?;
             let sig4 = install_method.signature.clone();
             cls.borrow_mut().methods.insert(sig4.clone(), crate::object::som_ref(install_method));
             cls.borrow_mut().method_order.push(sig4);
 
+            let define_class_def = MethodDef {
+                signature: Signature::Keyword(vec![("defineClass:".to_string(), "code".to_string())]),
+                body: MethodBody::Primitive,
+                source: None,
+            };
+            let define_class_method = self.assemble_method(define_class_def, cls.clone())?;
+            let sig_dc = define_class_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig_dc.clone(), crate::object::som_ref(define_class_method));
+            cls.borrow_mut().method_order.push(sig_dc);
+
             let read_def = MethodDef {
                 signature: Signature::Keyword(vec![("readText:".to_string(), "path".to_string())]),
                 body: MethodBody::Primitive,
+                source: None,
             };
             let read_method = self.assemble_method(read_def, cls.clone())?;
             let sig5 = read_method.signature.clone();
@@ -305,6 +340,7 @@ impl Universe {
             let write_def = MethodDef {
                 signature: Signature::Keyword(vec![("writeText:".to_string(), "content".to_string()), ("to:".to_string(), "path".to_string())]),
                 body: MethodBody::Primitive,
+                source: None,
             };
             let write_method = self.assemble_method(write_def, cls.clone())?;
             let sig6 = write_method.signature.clone();
@@ -314,11 +350,92 @@ impl Universe {
             let append_def = MethodDef {
                 signature: Signature::Keyword(vec![("appendText:".to_string(), "content".to_string()), ("to:".to_string(), "path".to_string())]),
                 body: MethodBody::Primitive,
+                source: None,
             };
             let append_method = self.assemble_method(append_def, cls.clone())?;
             let sig_app = append_method.signature.clone();
             cls.borrow_mut().methods.insert(sig_app.clone(), crate::object::som_ref(append_method));
             cls.borrow_mut().method_order.push(sig_app);
+
+            let eval_async_def = MethodDef {
+                signature: Signature::Keyword(vec![("evaluateAsync:".to_string(), "code".to_string())]),
+                body: MethodBody::Primitive,
+                source: None,
+            };
+            let eval_async_method = self.assemble_method(eval_async_def, cls.clone())?;
+            let sig_ea = eval_async_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig_ea.clone(), crate::object::som_ref(eval_async_method));
+            cls.borrow_mut().method_order.push(sig_ea);
+
+            let bg_status_def = MethodDef {
+                signature: Signature::Unary("bgTaskStatus".to_string()),
+                body: MethodBody::Primitive,
+                source: None,
+            };
+            let bg_status_method = self.assemble_method(bg_status_def, cls.clone())?;
+            let sig_bgs = bg_status_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig_bgs.clone(), crate::object::som_ref(bg_status_method));
+            cls.borrow_mut().method_order.push(sig_bgs);
+
+            let bg_result_def = MethodDef {
+                signature: Signature::Unary("bgTaskResult".to_string()),
+                body: MethodBody::Primitive,
+                source: None,
+            };
+            let bg_result_method = self.assemble_method(bg_result_def, cls.clone())?;
+            let sig_bgr = bg_result_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig_bgr.clone(), crate::object::som_ref(bg_result_method));
+            cls.borrow_mut().method_order.push(sig_bgr);
+
+            let bg_error_def = MethodDef {
+                signature: Signature::Unary("bgTaskError".to_string()),
+                body: MethodBody::Primitive,
+                source: None,
+            };
+            let bg_error_method = self.assemble_method(bg_error_def, cls.clone())?;
+            let sig_bge = bg_error_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig_bge.clone(), crate::object::som_ref(bg_error_method));
+            cls.borrow_mut().method_order.push(sig_bge);
+
+            let bg_frames_def = MethodDef {
+                signature: Signature::Unary("bgTaskFrames".to_string()),
+                body: MethodBody::Primitive,
+                source: None,
+            };
+            let bg_frames_method = self.assemble_method(bg_frames_def, cls.clone())?;
+            let sig_bgf = bg_frames_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig_bgf.clone(), crate::object::som_ref(bg_frames_method));
+            cls.borrow_mut().method_order.push(sig_bgf);
+
+            let bg_vars_def = MethodDef {
+                signature: Signature::Keyword(vec![("bgTaskFrameVarsAt:".to_string(), "idx".to_string())]),
+                body: MethodBody::Primitive,
+                source: None,
+            };
+            let bg_vars_method = self.assemble_method(bg_vars_def, cls.clone())?;
+            let sig_bgv = bg_vars_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig_bgv.clone(), crate::object::som_ref(bg_vars_method));
+            cls.borrow_mut().method_order.push(sig_bgv);
+
+            let bg_src_def = MethodDef {
+                signature: Signature::Keyword(vec![("bgTaskFrameSourceAt:".to_string(), "idx".to_string())]),
+                body: MethodBody::Primitive,
+                source: None,
+            };
+            let bg_src_method = self.assemble_method(bg_src_def, cls.clone())?;
+            let sig_bgsrc = bg_src_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig_bgsrc.clone(), crate::object::som_ref(bg_src_method));
+            cls.borrow_mut().method_order.push(sig_bgsrc);
+
+            let bg_cmd_def = MethodDef {
+                signature: Signature::Keyword(vec![("bgTaskCommand:".to_string(), "cmd".to_string())]),
+                body: MethodBody::Primitive,
+                source: None,
+            };
+            let bg_cmd_method = self.assemble_method(bg_cmd_def, cls.clone())?;
+            let sig_bgcmd = bg_cmd_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig_bgcmd.clone(), crate::object::som_ref(bg_cmd_method));
+            cls.borrow_mut().method_order.push(sig_bgcmd);
         }
 
         // Add pause primitives to Debugger
@@ -326,6 +443,7 @@ impl Universe {
             let resume_def = MethodDef {
                 signature: Signature::Unary("resume".to_string()),
                 body: MethodBody::Primitive,
+                source: None,
             };
             let resume_method = self.assemble_method(resume_def, cls.clone())?;
             let sig1 = resume_method.signature.clone();
@@ -335,6 +453,7 @@ impl Universe {
             let halt_def = MethodDef {
                 signature: Signature::Unary("halt".to_string()),
                 body: MethodBody::Primitive,
+                source: None,
             };
             let halt_method = self.assemble_method(halt_def, metaclass.clone())?;
             let sig_h = halt_method.signature.clone();
@@ -344,6 +463,7 @@ impl Universe {
             let step_into_def = MethodDef {
                 signature: Signature::Unary("stepInto".to_string()),
                 body: MethodBody::Primitive,
+                source: None,
             };
             let step_into_method = self.assemble_method(step_into_def, cls.clone())?;
             let sig2 = step_into_method.signature.clone();
@@ -353,6 +473,7 @@ impl Universe {
             let current_frames_def = MethodDef {
                 signature: Signature::Unary("currentFrames".to_string()),
                 body: MethodBody::Primitive,
+                source: None,
             };
             let current_frames_method = self.assemble_method(current_frames_def, cls.clone())?;
             let sig3 = current_frames_method.signature.clone();
@@ -374,6 +495,18 @@ impl Universe {
             let sig = method.signature.clone();
             metaclass.borrow_mut().methods.insert(sig.clone(), som_ref(method));
             metaclass.borrow_mut().method_order.push(sig);
+        }
+
+        if def.name == "Method" || def.name == "Primitive" {
+            let source_def = MethodDef {
+                signature: Signature::Unary("source".to_string()),
+                body: MethodBody::Primitive,
+                source: None,
+            };
+            let source_method = self.assemble_method(source_def, cls.clone())?;
+            let sig_s = source_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig_s.clone(), crate::object::som_ref(source_method));
+            cls.borrow_mut().method_order.push(sig_s);
         }
         
         Ok(())
@@ -405,6 +538,7 @@ impl Universe {
             holder,
             parameters,
             body,
+            source: def.source,
         })
     }
 
