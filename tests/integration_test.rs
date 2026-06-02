@@ -329,3 +329,153 @@ fn test_ide_classes_compilation() -> Result<()> {
     
     Ok(())
 }
+
+#[test]
+fn test_som_syntax_highlighting() {
+    let code = "\"comment\" self halt. #symbol := 42.12 'string'";
+    let font_id = eframe::egui::FontId::monospace(14.0);
+    let job = lazysom::primitives::gui::highlight_som(code, true, font_id);
+    assert!(job.sections.len() > 0);
+}
+
+#[test]
+fn test_ide_gui_and_output_primitives() -> Result<()> {
+    let classpath = vec![
+        std::path::PathBuf::from("SOM/Smalltalk"),
+        std::path::PathBuf::from("SOM/TestSuite"),
+        std::path::PathBuf::from("Tools"),
+    ];
+    let universe = Universe::new(classpath);
+    let interpreter = Interpreter::new(&universe);
+    universe.load_class("System")?;
+    universe.load_class("Array")?;
+    universe.load_class("String")?;
+    universe.load_class("Integer")?;
+
+    let system_obj = som_ref(SomObject {
+        class: universe.load_class("System")?,
+        fields: Vec::new(),
+    });
+    universe.set_global("system", Value::Object(system_obj.clone()));
+
+    // 1. Verify custom GUI registration queues the window correctly
+    let snippet_gui = "system registerGui: 'Test GUI' code: '[ :ui | ]'";
+    let res_gui = interpreter.evaluate_snippet(snippet_gui)?;
+    assert_eq!(res_gui, Value::Boolean(true));
+    
+    {
+        let mut runner = lazysom::vm_runner::VM_RUNNER.lock().unwrap();
+        let guis = runner.take_gui_registrations();
+        assert_eq!(guis.len(), 1);
+        match &guis[0] {
+            lazysom::vm_runner::GuiRegistration::Snippet { title, code } => {
+                assert_eq!(title, "Test GUI");
+                assert_eq!(code, "[ :ui | ]");
+            }
+            _ => panic!("Expected Snippet registration"),
+        }
+    }
+
+    // 1b. Verify custom GUI class registration
+    let class_gui = "system registerGuiClass: 'TestGuiClass'";
+    let res_class = interpreter.evaluate_snippet(class_gui)?;
+    assert_eq!(res_class, Value::Boolean(true));
+    
+    {
+        let mut runner = lazysom::vm_runner::VM_RUNNER.lock().unwrap();
+        let guis = runner.take_gui_registrations();
+        assert_eq!(guis.len(), 1);
+        match &guis[0] {
+            lazysom::vm_runner::GuiRegistration::Class { class_name } => {
+                assert_eq!(class_name, "TestGuiClass");
+            }
+            _ => panic!("Expected Class registration"),
+        }
+    }
+
+    // 2. Verify background output redirection
+    lazysom::vm_runner::IS_BG_THREAD.with(|b| b.set(true));
+    
+    let snippet_print = "system printString: 'Hello captured output!\\n'";
+    let res_print = interpreter.evaluate_snippet(snippet_print)?;
+    assert_eq!(res_print, Value::Nil);
+    
+    {
+        let mut runner = lazysom::vm_runner::VM_RUNNER.lock().unwrap();
+        let captured = runner.take_output();
+        assert_eq!(captured, "Hello captured output!\n");
+    }
+
+    lazysom::vm_runner::IS_BG_THREAD.with(|b| b.set(false));
+    Ok(())
+}
+
+#[test]
+fn test_non_local_returns() -> Result<()> {
+    let classpath = vec![
+        std::path::PathBuf::from("SOM/Smalltalk"),
+        std::path::PathBuf::from("SOM/TestSuite"),
+        std::path::PathBuf::from("SOM/TestSuite/BasicInterpreterTests"),
+    ];
+    let universe = Universe::new(classpath);
+    universe.load_class("Object")?;
+    universe.load_class("Class")?;
+    universe.load_class("Metaclass")?;
+    universe.load_class("True")?;
+    universe.load_class("False")?;
+    universe.load_class("Nil")?;
+    universe.load_class("String")?;
+    universe.load_class("Integer")?;
+    let sys_class = universe.load_class("System")?;
+
+    let system_obj = som_ref(SomObject {
+        class: sys_class.clone(),
+        fields: Vec::new(),
+    });
+    universe.set_global("system", Value::Object(system_obj.clone()));
+    universe.set_global("nil", Value::Nil);
+    universe.set_global("true", Value::Boolean(true));
+    universe.set_global("false", Value::Boolean(false));
+
+    let interpreter = Interpreter::new(&universe);
+
+    let nlr_class = universe.load_class("NonLocalReturn")?;
+
+    // test1 returns 42
+    let res1 = interpreter.dispatch(Value::Class(nlr_class.clone()), "test1", vec![])?;
+    match res1 {
+        Value::Integer(i) => assert_eq!(i.to_string(), "42"),
+        _ => panic!("Expected Integer 42 from test1, got {:?}", res1),
+    }
+
+    // test2 returns 43 (which is test1 + 1)
+    let res2 = interpreter.dispatch(Value::Class(nlr_class.clone()), "test2", vec![])?;
+    match res2 {
+        Value::Integer(i) => assert_eq!(i.to_string(), "43"),
+        _ => panic!("Expected Integer 43 from test2, got {:?}", res2),
+    }
+
+    // test3 returns 3
+    let res3 = interpreter.dispatch(Value::Class(nlr_class.clone()), "test3", vec![])?;
+    match res3 {
+        Value::Integer(i) => assert_eq!(i.to_string(), "3"),
+        _ => panic!("Expected Integer 3 from test3, got {:?}", res3),
+    }
+
+    // test4 returns 42 (uses checkIndex:ifValid: with valid index)
+    let res4 = interpreter.dispatch(Value::Class(nlr_class.clone()), "test4", vec![])?;
+    match res4 {
+        Value::Integer(i) => assert_eq!(i.to_string(), "42"),
+        _ => panic!("Expected Integer 42 from test4, got {:?}", res4),
+    }
+
+    // test5 returns 22 (uses checkIndex:ifValid: with invalid index)
+    let res5 = interpreter.dispatch(Value::Class(nlr_class.clone()), "test5", vec![])?;
+    match res5 {
+        Value::Integer(i) => assert_eq!(i.to_string(), "22"),
+        _ => panic!("Expected Integer 22 from test5, got {:?}", res5),
+    }
+
+    Ok(())
+}
+

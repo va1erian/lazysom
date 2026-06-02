@@ -223,7 +223,16 @@ impl<'a> BytecodeInterpreter<'a> {
             is_active: true,
         });
 
-        self.execute_frame(frame)
+        match self.execute_frame(frame.clone())? {
+            FrameResult::Value(v) => Ok(FrameResult::Value(v)),
+            FrameResult::NonLocalReturn(v, target) => {
+                if gc::Gc::ptr_eq(&target, &frame) {
+                    Ok(FrameResult::Value(v))
+                } else {
+                    Ok(FrameResult::NonLocalReturn(v, target))
+                }
+            }
+        }
     }
 
     fn execute_frame(&self, frame: SomRef<Frame>) -> Result<FrameResult> {
@@ -367,15 +376,11 @@ impl<'a> BytecodeInterpreter<'a> {
 
                     let mut curr = frame.clone();
                     loop {
-                        let is_method = curr.borrow().holder.is_some();
-                        if is_method {
-                            return Ok(FrameResult::NonLocalReturn(val, curr));
-                        }
                         let next = curr.borrow().context.clone();
                         if let Some(ctx) = next {
                             curr = ctx;
                         } else {
-                            return Err(anyhow!("Cannot return non-locally outside a method context"));
+                            return Ok(FrameResult::NonLocalReturn(val, curr));
                         }
                     }
                 }

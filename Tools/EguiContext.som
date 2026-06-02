@@ -5,6 +5,12 @@ EguiContext = (
     handle: h = ( handle := h. )
 
     window: title do: block = primitive
+    leftPanel: title do: block = primitive
+    rightPanel: title do: block = primitive
+    bottomPanel: title do: block = primitive
+    topPanel: title do: block = primitive
+    centralPanel: block = primitive
+    applyThemeIsDark: isDark fontSize: size fontName: fontName = primitive
 
     isKeyDown: keyName = primitive
     requestRepaint = primitive

@@ -1,17 +1,29 @@
 Workspace = (
-    | codeInput codeOutput runStatus |
+    | codeInput codeOutput runStatus ide lastTaskStatus |
 
     codeInput = ( ^codeInput )
     codeInput: val = ( codeInput := val. )
+
+    ide: anIde = ( ide := anIde. )
 
     initialize = (
         codeInput := '"Write SOM code here. Click Evaluate to run asynchronously without blocking the UI.\nTry making a halt to trigger the Debugger, e.g.:"\n\n[ | x | \n  x := 42.\n  self halt.\n  x * 2\n] value'.
         codeOutput := ''.
         runStatus := 'idle'.
+        lastTaskStatus := 'idle'.
     )
 
     renderOn: winUi = (
-        winUi heading: 'Interactive Workspace'.
+        "Docking Controls"
+        winUi horizontal: [:row |
+            row heading: 'Interactive Workspace'.
+            row separator.
+            (row button: 'Float') ifTrue: [ ide workspaceDock: 'float' ].
+            (row button: 'Left') ifTrue: [ ide workspaceDock: 'left' ].
+            (row button: 'Right') ifTrue: [ ide workspaceDock: 'right' ].
+            (row button: 'Bottom') ifTrue: [ ide workspaceDock: 'bottom' ].
+            (row button: 'Max') ifTrue: [ ide workspaceDock: 'fill' ].
+        ].
         winUi separator.
         
         winUi label: 'Write SOM Code Snippet:'.
@@ -19,6 +31,52 @@ Workspace = (
 
         "Poll active background task status"
         runStatus := system bgTaskStatus.
+
+        runStatus = 'running' ifTrue: [
+            | out |
+            lastTaskStatus = 'running' ifFalse: [
+                codeOutput := ''.
+                lastTaskStatus := 'running'.
+            ].
+            out := system bgTaskOutput.
+            out ifNotNil: [
+                (out length > 0) ifTrue: [ codeOutput := codeOutput + out ].
+            ].
+        ].
+
+        runStatus = 'completed' ifTrue: [
+            lastTaskStatus = 'running' ifTrue: [
+                | out res |
+                out := system bgTaskOutput.
+                out ifNotNil: [
+                    (out length > 0) ifTrue: [ codeOutput := codeOutput + out ].
+                ].
+                res := system bgTaskResult.
+                codeOutput := codeOutput + '\n---\nReturned: ' + res.
+                lastTaskStatus := 'completed'.
+            ].
+        ].
+
+        runStatus = 'errored' ifTrue: [
+            lastTaskStatus = 'running' ifTrue: [
+                | out err |
+                out := system bgTaskOutput.
+                out ifNotNil: [
+                    (out length > 0) ifTrue: [ codeOutput := codeOutput + out ].
+                ].
+                err := system bgTaskError.
+                codeOutput := codeOutput + '\n---\n⚠️ RUNTIME ERROR:\n' + err.
+                lastTaskStatus := 'errored'.
+            ].
+        ].
+
+        runStatus = 'idle' ifTrue: [
+            lastTaskStatus := 'idle'.
+        ].
+        
+        runStatus = 'paused' ifTrue: [
+            lastTaskStatus := 'paused'.
+        ].
 
         winUi horizontal: [:row |
             runStatus = 'running' ifTrue: [
@@ -36,6 +94,7 @@ Workspace = (
                     (row button: '🚀 Run Snippet') ifTrue: [
                         system evaluateAsync: codeInput.
                         codeOutput := 'Evaluating...'.
+                        lastTaskStatus := 'idle'. "Force resetting on start"
                     ].
                 ].
             ].
@@ -44,19 +103,8 @@ Workspace = (
         winUi separator.
         winUi heading: 'Result / Console Output'.
 
-        runStatus = 'completed' ifTrue: [
-            codeOutput := system bgTaskResult.
-        ].
-        runStatus = 'errored' ifTrue: [
-            codeOutput := '⚠️ RUNTIME ERROR:\n' + system bgTaskError.
-        ].
-
-        winUi group: [:box |
-            box scrollArea: [:scroll |
-                scroll vertical: [:col |
-                    col label: codeOutput.
-                ].
-            ].
+        winUi scrollArea: [:scroll |
+            scroll textEditReadonly: codeOutput.
         ].
     )
 )

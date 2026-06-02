@@ -1,9 +1,19 @@
 HelpPanel = (
-    | workspace |
+    | workspace ide |
     
     workspace: w = ( workspace := w. )
+    ide: anIde = ( ide := anIde. )
 
     renderOn: winUi = (
+        winUi horizontal: [:row |
+            (row button: 'Float') ifTrue: [ ide helpDock: 'float' ].
+            (row button: 'Left') ifTrue: [ ide helpDock: 'left' ].
+            (row button: 'Right') ifTrue: [ ide helpDock: 'right' ].
+            (row button: 'Bottom') ifTrue: [ ide helpDock: 'bottom' ].
+            (row button: 'Max') ifTrue: [ ide helpDock: 'fill' ].
+        ].
+        winUi separator.
+
         winUi heading: 'SOM Environment Guide & Quickstart'.
         winUi separator.
 
@@ -69,7 +79,7 @@ HelpPanel = (
                     col heading: 'Custom GUI Windows (using Egui)'.
                     col label: 'A sample that creates a premium custom dialog window.'.
                     (col button: 'Load Custom GUI Demo') ifTrue: [
-                        workspace codeInput: '"Demo of premium custom egui windows directly in SOM!"\n\n[ | ctx count |\n  ctx := EguiContext new.\n  count := 0.\n  \n  "Egui runs every frame. The requestRepaint primitive keeps the thread alive."\n  ctx window: \'SOM Premium GUI\' do: [:winUi |\n      winUi heading: \'Hello from SOM Custom window!\'.\n      winUi separator.\n      winUi label: \'Count: \' + count asString.\n      (winUi button: \'Increment\') ifTrue: [ count := count + 1 ].\n  ].\n] value'.
+                        workspace codeInput: '"Demo of premium custom egui windows directly in SOM!"\n\nsystem registerGui: \'SOM Premium GUI\' code: \'[ | count |\n  count := 0.\n  [:winUi |\n      winUi heading: \\\'Hello from SOM Custom window!\\\'.\n      winUi separator.\n      winUi label: \\\'Count: \\\' + count asString.\n      (winUi button: \\\'Increment\\\') ifTrue: [ count := count + 1 ].\n  ]\n] value\''.
                     ].
                 ].
             ].

@@ -1,0 +1,7 @@
+theme:dark
+fontSize:16
+fontName:Proportional
+browserDock:float
+workspaceDock:left
+debuggerDock:float
+helpDock:float
