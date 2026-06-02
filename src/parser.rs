@@ -114,6 +114,9 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_method(&mut self) -> Result<MethodDef> {
+        self.peek()?;
+        let start = self.peeked.as_ref().unwrap().2.start;
+        
         let signature = self.parse_signature()?;
         self.expect(Token::Equal)?;
         
@@ -124,7 +127,17 @@ impl<'a> Parser<'a> {
             MethodBody::Block(self.parse_method_block()?)
         };
         
-        Ok(MethodDef { signature, body })
+        // We use the last token's end as the end of the method source.
+        // Since we just finished parsing the body, the last consumed token was either 'primitive' or the ')' of the block.
+        // However, self.lexer.span() might have advanced if peek() was called.
+        // We can use a helper or just get the current span end if we know we just called next().
+        // In both cases above, we just called self.next() (implicitly in self.expect for block).
+        // Wait, self.expect calls self.next().
+        
+        let end = self.lexer.span().end;
+        let source = self.input[start..end].to_string();
+        
+        Ok(MethodDef { signature, body, source: Some(source) })
     }
 
     fn parse_signature(&mut self) -> Result<Signature> {

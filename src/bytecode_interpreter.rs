@@ -234,11 +234,11 @@ impl<'a> BytecodeInterpreter<'a> {
             loop {
                 let state = self.universe.vm_state.borrow().clone();
                 match state {
-                    crate::universe::VmState::Paused(_) => {
+                    crate::universe::VmState::Paused => {
                         std::thread::sleep(std::time::Duration::from_millis(10));
                     }
                     crate::universe::VmState::Stepping => {
-                        *self.universe.vm_state.borrow_mut() = crate::universe::VmState::Paused(frame.clone());
+                        *self.universe.vm_state.borrow_mut() = crate::universe::VmState::Paused;
                         break;
                     }
                     crate::universe::VmState::Running => {
@@ -259,7 +259,7 @@ impl<'a> BytecodeInterpreter<'a> {
 
             match opcode {
                 Opcode::Halt => {
-                    *self.universe.vm_state.borrow_mut() = crate::universe::VmState::Paused(frame.clone());
+                    *self.universe.vm_state.borrow_mut() = crate::universe::VmState::Paused;
                     continue;
                 }
                 Opcode::Dup => {

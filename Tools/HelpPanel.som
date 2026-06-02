@@ -1,0 +1,78 @@
+HelpPanel = (
+    | workspace |
+    
+    workspace: w = ( workspace := w. )
+
+    renderOn: winUi = (
+        winUi heading: 'SOM Environment Guide & Quickstart'.
+        winUi separator.
+
+        winUi columns: 2 do: [:cols |
+            | docCol sampleCol |
+            docCol := cols at: 1.
+            sampleCol := cols at: 2.
+
+            "Left Panel: Documentation"
+            docCol heading: '1. SOM Quick Reference'.
+            docCol separator.
+            docCol scrollArea: [:scroll |
+                scroll vertical: [:col |
+                    col heading: 'Variables & Assignment'.
+                    col label: 'Variables are declared inside pipes: | x y |'.
+                    col label: 'Assignment uses the := operator: x := 10.'.
+                    col separator.
+
+                    col heading: 'Blocks (Lexical Closures)'.
+                    col label: 'Blocks are enclosed in square brackets: [ 1 + 2 ]'.
+                    col label: 'With arguments: [ :a :b | a + b ]'.
+                    col label: 'To evaluate: [ 1 + 2 ] value'.
+                    col label: 'Arguments: [ :a | a * 2 ] value: 5'.
+                    col separator.
+
+                    col heading: 'Methods & Returns'.
+                    col label: 'Returns use the caret operator: ^ value'.
+                    col label: 'Selectors are unary (run), binary (+), or keyword (at:put:).'.
+                    col separator.
+
+                    col heading: 'Halts & Debugging'.
+                    col label: 'Trigger a debugger halt by calling: self halt.'.
+                    col label: 'Alternatively: Debugger halt.'.
+                ].
+            ].
+
+            "Right Panel: Interactive Code Samples"
+            sampleCol heading: '2. Load Interactive Samples'.
+            sampleCol separator.
+            sampleCol scrollArea: [:scroll |
+                scroll vertical: [:col |
+                    col heading: 'Hello World'.
+                    col label: 'Classic console greet snippet.'.
+                    (col button: 'Load Hello World') ifTrue: [
+                        workspace codeInput: '"A simple console printing sample"\n\nsystem printString: \'Hello World from SOM!\\n\''.
+                    ].
+                    col separator.
+
+                    col heading: 'Fibonacci Algorithm'.
+                    col label: 'Recursive Fibonacci calculation block.'.
+                    (col button: 'Load Fibonacci') ifTrue: [
+                        workspace codeInput: '"Calculate the 10th Fibonacci number recursively"\n\n[ | fib | \n  fib := [:n | \n    (n < 2) ifTrue: [ n ] ifFalse: [ (fib value: (n - 1)) + (fib value: (n - 2)) ]\n  ].\n  \n  fib value: 10\n] value'.
+                    ].
+                    col separator.
+
+                    col heading: 'Halts & Breakpoint Debugging'.
+                    col label: 'A snippet that triggers the debugger via self halt.'.
+                    (col button: 'Load Halt Demo') ifTrue: [
+                        workspace codeInput: '"A breakpoint demonstration. Run this and watch the Debugger tab!"\n\n[ | list sum | \n  list := Array new: 5.\n  list at: 1 put: 10.\n  list at: 2 put: 20.\n  list at: 3 put: 30.\n  \n  self halt. "VM will pause here!"\n  \n  sum := (list at: 1) + (list at: 2) + (list at: 3).\n  sum\n] value'.
+                    ].
+                    col separator.
+
+                    col heading: 'Custom GUI Windows (using Egui)'.
+                    col label: 'A sample that creates a premium custom dialog window.'.
+                    (col button: 'Load Custom GUI Demo') ifTrue: [
+                        workspace codeInput: '"Demo of premium custom egui windows directly in SOM!"\n\n[ | ctx count |\n  ctx := EguiContext new.\n  count := 0.\n  \n  "Egui runs every frame. The requestRepaint primitive keeps the thread alive."\n  ctx window: \'SOM Premium GUI\' do: [:winUi |\n      winUi heading: \'Hello from SOM Custom window!\'.\n      winUi separator.\n      winUi label: \'Count: \' + count asString.\n      (winUi button: \'Increment\') ifTrue: [ count := count + 1 ].\n  ].\n] value'.
+                    ].
+                ].
+            ].
+        ].
+    )
+)

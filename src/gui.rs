@@ -20,6 +20,18 @@ impl SomGuiApp {
 
 impl eframe::App for SomGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Poll background VM runner events and repaint if running
+        {
+            let mut runner = crate::vm_runner::VM_RUNNER.lock().unwrap();
+            runner.poll_events();
+            if runner.get_status_str() == "running" {
+                ctx.request_repaint();
+            }
+        }
+
+        // Reset per-frame counter so scroll area IDs are stable across frames.
+        crate::primitives::reset_scroll_id_counter();
+
         let interpreter = Interpreter::new(&self.universe);
         let ctx_ptr = ctx as *const egui::Context as usize;
 

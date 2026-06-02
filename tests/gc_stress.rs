@@ -127,6 +127,8 @@ mod gc_stress {
         {
             let activation = som_ref(Activation {
                 holder: None,
+                holder_method_name: None,
+                source: None,
                 self_val: Value::Nil,
                 args: HashMap::new(),
                 locals: HashMap::new(),
@@ -157,6 +159,8 @@ mod gc_stress {
             for i in 0..DEPTH {
                 let act = som_ref(Activation {
                     holder: None,
+                    holder_method_name: None,
+                    source: None,
                     self_val: Value::Integer(num_bigint::BigInt::from(i as i64)),
                     args: HashMap::new(),
                     locals: HashMap::new(),
@@ -367,6 +371,7 @@ mod gc_stress {
                     locals: vec![],
                     body: vec![Expression::Literal(Literal::Integer(BigInt::from(1)))],
                 }),
+                source: None,
             });
             // class → method → class  (cycle through the holder field)
             cls.borrow_mut()

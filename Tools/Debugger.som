@@ -1,35 +1,102 @@
 Debugger = Object (
-    | selectedFrame |
-
-    resume = primitive
-    stepInto = primitive
-    currentFrames = primitive
+    | selectedFrameIdx |
 
     renderOn: winUi = (
-        | frames |
-        frames := self currentFrames.
+        | status frames |
+        status := system bgTaskStatus.
+        
+        status = 'paused' ifTrue: [
+            winUi heading: '⏸️ Breakpoint Debugger'.
+            winUi separator.
 
-        winUi horizontal: [:row |
-            row vertical: [:col |
-                (col button: '[Resume]') ifTrue: [
-                    self resume.
+            "Control Panel"
+            winUi horizontal: [:row |
+                (row button: '▶ Resume Execution') ifTrue: [
+                    system bgTaskCommand: 'resume'.
                 ].
-                (col button: '[Step Into]') ifTrue: [
-                    self stepInto.
+                (row button: '➡️ Step Into') ifTrue: [
+                    system bgTaskCommand: 'stepInto'.
+                ].
+                (row button: '🛑 Terminate Run') ifTrue: [
+                    system bgTaskCommand: 'stop'.
+                    selectedFrameIdx := nil.
                 ].
             ].
-        ].
 
-        winUi horizontal: [:row |
-            row vertical: [:col |
-                (frames length = 0) ifTrue: [
-                    col label: 'No frames (Running or unhandled state)'.
-                ] ifFalse: [
-                    frames do: [:f |
-                        col label: f asString.
+            winUi separator.
+
+            frames := system bgTaskFrames.
+            selectedFrameIdx isNil ifTrue: [
+                (frames length > 0) ifTrue: [ selectedFrameIdx := 0 ].
+            ].
+
+            winUi columns: 2 do: [:cols |
+                | leftCol rightCol |
+                leftCol := cols at: 1.
+                rightCol := cols at: 2.
+
+                "Left Panel: Call Stack Frame List"
+                leftCol heading: 'Call Stack Trace'.
+                leftCol separator.
+                leftCol scrollArea: [:scroll |
+                    scroll vertical: [:col |
+                        | idx |
+                        idx := 0.
+                        frames do: [:fName |
+                            | btnText |
+                            btnText := '[' + idx asString + '] ' + fName.
+                            (selectedFrameIdx = idx) ifTrue: [ btnText := '👉 ' + btnText ].
+                            
+                            (col button: btnText) ifTrue: [
+                                selectedFrameIdx := idx.
+                            ].
+                            idx := idx + 1.
+                        ].
+                    ].
+                ].
+
+                "Right Panel: Source & Variables Inspector"
+                selectedFrameIdx isNil ifFalse: [
+                    | src vars |
+                    rightCol heading: 'Variables Inspector'.
+                    rightCol separator.
+                    
+                    vars := system bgTaskFrameVarsAt: selectedFrameIdx.
+                    vars isNil ifFalse: [
+                        rightCol scrollArea: [:scroll |
+                            scroll vertical: [:col |
+                                vars do: [:triple |
+                                    | name type val |
+                                    name := triple at: 1.
+                                    type := triple at: 2.
+                                    val := triple at: 3.
+                                    col horizontal: [:row |
+                                        row label: '▪ ' + name + ' (' + type + ') :'.
+                                        row label: '  ' + val.
+                                    ].
+                                ].
+                            ].
+                        ].
+                    ].
+
+                    rightCol separator.
+                    rightCol heading: 'Method Source Code'.
+                    rightCol separator.
+
+                    src := system bgTaskFrameSourceAt: selectedFrameIdx.
+                    src isNil ifTrue: [
+                        rightCol label: '  (Method source not available for this frame)'.
+                    ] ifFalse: [
+                        rightCol textEditMultiline: src.
                     ].
                 ].
             ].
+        ] ifFalse: [
+            winUi heading: 'Interactive Debugger'.
+            winUi separator.
+            winUi label: 'VM Status: ' + status asString.
+            winUi label: 'No active breakpoint hit. Run a snippet in the Workspace with "self halt" to debug.'.
+            selectedFrameIdx := nil.
         ].
     )
 )

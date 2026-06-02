@@ -164,6 +164,7 @@ pub struct SomMethod {
     pub holder: SomRef<SomClass>,
     pub parameters: Vec<std::string::String>,
     pub body: MethodBody,
+    pub source: Option<std::string::String>,
 }
 
 unsafe impl Trace for SomMethod {
@@ -258,6 +259,8 @@ unsafe impl Trace for SomBlock {
 #[derivative(PartialEq)]
 pub struct Activation {
     pub holder: Option<SomRef<SomClass>>,
+    pub holder_method_name: Option<String>,
+    pub source: Option<String>,
     pub self_val: Value,
     pub args: HashMap<std::string::String, Value>,
     pub locals: HashMap<std::string::String, Value>,

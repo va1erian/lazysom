@@ -1,52 +1,223 @@
 Browser = (
-    | selectedClass classList newMethodCode |
+    | selectedClass classList editorCode editorType selectedMethod classFilter showClassSide |
 
     initialize = (
         classList := system classNames.
         selectedClass := nil.
-        newMethodCode := 'newMethod = ( ^ self )'.
+        selectedMethod := nil.
+        editorCode := 'newMethod = (\n    ^ self\n)'.
+        editorType := #method. " #method or #class "
+        classFilter := ''.
+        showClassSide := false.
     )
 
-    saveMethod: code inClass: cls = (
-        | path res |
-        path := 'User/' + cls name asString + '.som'.
-        "Append the new method to the class file if it exists in User/"
-        "Since we don't have an AST decompiler, we just save the snippet to keep it persistent."
-        res := system appendText: ('\n    ' + code) to: path.
-        (res = true) ifTrue: [
-            system printString: 'Appended method to ' + path + '\n'.
-        ] ifFalse: [
-            system printString: 'Failed to append method to ' + path + '\n'.
+    saveClassToDisk: cls = (
+        | src className superName instFields mList cFields cMethods |
+        className := cls name asString.
+        
+        cls superclass isNil ifTrue: [ superName := 'nil' ] ifFalse: [ superName := cls superclass name asString ].
+        superName = 'nil' ifTrue: [ superName := 'nil' ].
+        
+        src := className + ' = ' + superName + ' (\n'.
+        
+        "Instance Fields"
+        instFields := cls fields.
+        (instFields length > 0) ifTrue: [
+            | fieldsStr |
+            fieldsStr := '    |'.
+            instFields do: [:f | fieldsStr := fieldsStr + ' ' + f asString ].
+            fieldsStr := fieldsStr + ' |\n\n'.
+            src := src + fieldsStr.
         ].
+
+        "Instance Methods"
+        mList := cls methods.
+        mList do: [:m |
+            m source isNil ifFalse: [
+                src := src + '    ' + m source + '\n\n'.
+            ] ifTrue: [
+                src := src + '    ' + m signature asString + ' = (\n        "source not available"\n    )\n\n'.
+            ].
+        ].
+
+        "Class side fields and methods"
+        cFields := cls class fields.
+        cMethods := cls class methods.
+        
+        (cFields length > 0 or: [ cMethods length > 0 ]) ifTrue: [
+            src := src + '    ----------------------------------\n\n'.
+            
+            "Class Fields"
+            (cFields length > 0) ifTrue: [
+                | cFieldsStr |
+                cFieldsStr := '    |'.
+                cFields := cls class fields.
+                cFields do: [:f | cFieldsStr := cFieldsStr + ' ' + f asString ].
+                cFieldsStr := cFieldsStr + ' |\n\n'.
+                src := src + cFieldsStr.
+            ].
+
+            "Class Methods"
+            cMethods do: [:m |
+                m source isNil ifFalse: [
+                    src := src + '    ' + m source + '\n\n'.
+                ] ifTrue: [
+                    src := src + '    ' + m signature asString + ' = (\n        "source not available"\n    )\n\n'.
+                ].
+            ].
+        ].
+
+        src := src + ')\n'.
+        
+        system writeText: src to: className + '.som'.
+        system printString: 'Successfully saved ' + className + '.som to disk.\n'.
     )
 
     renderOn: winUi = (
-        winUi horizontal: [:row |
+        winUi columns: 2 do: [:cols |
+            | classCol rightCol |
+            classCol := cols at: 1.
+            rightCol := cols at: 2.
+
             "Left column: Classes"
-            row vertical: [:col |
-                classList do: [:className |
-                    (col button: className asString) ifTrue: [
-                        selectedClass := system global: className.
+            classCol heading: 'System Classes'.
+            classCol separator.
+            
+            classCol horizontal: [:row |
+                row label: 'Search:'.
+                row textEdit: classFilter.
+                (row button: '+ New Class') ifTrue: [
+                    editorCode := 'NewClass = Object (\n    | fields |\n    \n    run = (\n        ^ self\n    )\n)'.
+                    editorType := #class.
+                    selectedClass := nil.
+                    selectedMethod := nil.
+                ].
+            ].
+            
+            classCol scrollArea: [:scroll |
+                scroll vertical: [:col |
+                    classList do: [:className |
+                        (classFilter = '' or: [ className asString contains: classFilter ]) ifTrue: [
+                            | btnText |
+                            btnText := className asString.
+                            (selectedClass isNil ifFalse: [ selectedClass name asString = className ifTrue: [ btnText := '👉 [' + btnText + ']' ] ]).
+                            
+                            (col button: btnText) ifTrue: [
+                                selectedClass := system global: className.
+                                selectedMethod := nil.
+                                editorType := #method.
+                                editorCode := 'newMethod = (\n    ^ self\n)'.
+                            ].
+                        ].
                     ].
                 ].
             ].
 
-            "Right column: Methods"
-            row vertical: [:col |
-                selectedClass isNil ifFalse: [
-                    selectedClass selectors do: [:sel |
-                        col label: sel asString.
+            "Right column: Methods & Editor"
+            selectedClass isNil ifTrue: [
+                rightCol heading: 'Welcome to SOM IDE'.
+                rightCol separator.
+                rightCol label: 'Select a class on the left to browse and edit, or click "+ New Class" to create a new SOM class.'.
+            ] ifFalse: [
+                rightCol heading: selectedClass name asString.
+                rightCol separator.
+                
+                rightCol horizontal: [:row |
+                    (row button: (showClassSide ifTrue: [ 'Instance Side' ] ifFalse: [ '⭐ Instance Side' ])) ifTrue: [
+                        showClassSide := false.
+                        selectedMethod := nil.
                     ].
-
-                    col textEditMultiline: newMethodCode.
-
-                    (col button: '[Add Method]') ifTrue: [
-                        | m |
-                        m := system compileMethod: newMethodCode inClass: selectedClass.
-                        (m isNil) ifFalse: [
-                            system installMethod: m inClass: selectedClass.
-                            self saveMethod: newMethodCode inClass: selectedClass.
+                    (row button: (showClassSide ifTrue: [ '⭐ Class Side' ] ifFalse: [ 'Class Side' ])) ifTrue: [
+                        showClassSide := true.
+                        selectedMethod := nil.
+                    ].
+                    (row button: 'Edit Class Definition') ifTrue: [
+                        editorType := #class.
+                        
+                        "Load full class definition source if available"
+                        editorCode := system readText: selectedClass name asString + '.som'.
+                        editorCode isNil ifTrue: [
+                            editorCode := selectedClass name asString + ' = ' + (selectedClass superclass isNil ifTrue: [ 'Object' ] ifFalse: [ selectedClass superclass name asString ]) + ' (\n    "Class definition code"\n)'.
                         ].
+                    ].
+                ].
+
+                rightCol horizontal: [:row |
+                    row label: (showClassSide ifTrue: [ 'Class Methods:' ] ifFalse: [ 'Instance Methods:' ]).
+                    (row button: '+ New Method') ifTrue: [
+                        editorType := #method.
+                        editorCode := 'newMethod = (\n    ^ self\n)'.
+                        selectedMethod := nil.
+                    ].
+                ].
+
+                rightCol scrollArea: [:scroll |
+                    scroll vertical: [:col |
+                        | targetClass methods |
+                        targetClass := showClassSide ifTrue: [ selectedClass class ] ifFalse: [ selectedClass ].
+                        methods := targetClass methods.
+                        
+                        (methods length = 0) ifTrue: [
+                            col label: '  (No methods defined)'.
+                        ] ifFalse: [
+                            methods do: [:m |
+                                | mBtnText |
+                                mBtnText := m signature asString.
+                                (selectedMethod isNil ifFalse: [ selectedMethod signature = m signature ifTrue: [ mBtnText := '👉 [' + mBtnText + ']' ] ]).
+                                
+                                (col button: mBtnText) ifTrue: [
+                                    selectedMethod := m.
+                                    editorCode := m source.
+                                    editorCode isNil ifTrue: [ editorCode := m signature asString + ' = (\n    ^ self\n)' ].
+                                    editorType := #method.
+                                ].
+                            ].
+                        ].
+                    ].
+                ].
+            ].
+
+            "Editor Pane"
+            selectedClass isNil ifFalse: [
+                rightCol separator.
+                rightCol heading: (editorType = #method ifTrue: [ 'Method Editor' ] ifFalse: [ 'Class Definition Editor' ]).
+                rightCol textEditMultiline: editorCode.
+                
+                rightCol horizontal: [:row |
+                    (row button: 'Save & Install') ifTrue: [
+                        editorType = #method ifTrue: [
+                            | m targetClass |
+                            targetClass := showClassSide ifTrue: [ selectedClass class ] ifFalse: [ selectedClass ].
+                            m := system compileMethod: editorCode inClass: targetClass.
+                            (m class = String) ifTrue: [
+                                system printString: 'Compile Error: ' + m + '\n'.
+                            ] ifFalse: [
+                                system installMethod: m inClass: targetClass.
+                                system printString: 'Method successfully compiled & installed.\n'.
+                                
+                                "Save the entire class back to disk"
+                                self saveClassToDisk: selectedClass.
+                                selectedMethod := m.
+                            ].
+                        ] ifFalse: [
+                            | res |
+                            res := system defineClass: editorCode.
+                            (res class = String) ifTrue: [
+                                system printString: 'Class Definition Error: ' + res + '\n'.
+                            ] ifFalse: [
+                                system printString: 'Class ' + res name asString + ' successfully defined & installed.\n'.
+                                classList := system classNames.
+                                selectedClass := res.
+                                editorType := #method.
+                                
+                                "Save class definition to disk"
+                                system writeText: editorCode to: res name asString + '.som'.
+                            ].
+                        ].
+                    ].
+                    
+                    (row button: 'Refresh Class List') ifTrue: [
+                        classList := system classNames.
                     ].
                 ].
             ].
