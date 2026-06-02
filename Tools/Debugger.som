@@ -1,8 +1,21 @@
 Debugger = Object (
-    | selectedFrameIdx |
+    | selectedFrameIdx ide |
+
+    ide: anIde = ( ide := anIde. )
 
     renderOn: winUi = (
         | status frames |
+        
+        "Docking Controls"
+        winUi horizontal: [:row |
+            (row button: 'Float') ifTrue: [ ide debuggerDock: 'float' ].
+            (row button: 'Left') ifTrue: [ ide debuggerDock: 'left' ].
+            (row button: 'Right') ifTrue: [ ide debuggerDock: 'right' ].
+            (row button: 'Bottom') ifTrue: [ ide debuggerDock: 'bottom' ].
+            (row button: 'Max') ifTrue: [ ide debuggerDock: 'fill' ].
+        ].
+        winUi separator.
+
         status := system bgTaskStatus.
         
         status = 'paused' ifTrue: [

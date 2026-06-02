@@ -240,10 +240,12 @@ impl<'a> Interpreter<'a> {
     fn find_method_activation(&self, activation: SomRef<Activation>) -> Result<SomRef<Activation>> {
         let mut curr = activation;
         loop {
-            if curr.borrow().holder.is_some() { return Ok(curr); }
             let next = curr.borrow().parent.clone();
-            if let Some(p) = next { curr = p; }
-            else { return Err(anyhow!("Context escape: no method activation found")); }
+            if let Some(p) = next {
+                curr = p;
+            } else {
+                return Ok(curr);
+            }
         }
     }
 

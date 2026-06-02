@@ -436,6 +436,36 @@ impl Universe {
             let sig_bgcmd = bg_cmd_method.signature.clone();
             cls.borrow_mut().methods.insert(sig_bgcmd.clone(), crate::object::som_ref(bg_cmd_method));
             cls.borrow_mut().method_order.push(sig_bgcmd);
+
+            let bg_output_def = MethodDef {
+                signature: Signature::Unary("bgTaskOutput".to_string()),
+                body: MethodBody::Primitive,
+                source: None,
+            };
+            let bg_output_method = self.assemble_method(bg_output_def, cls.clone())?;
+            let sig_bgout = bg_output_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig_bgout.clone(), crate::object::som_ref(bg_output_method));
+            cls.borrow_mut().method_order.push(sig_bgout);
+
+            let reg_gui_def = MethodDef {
+                signature: Signature::Keyword(vec![("registerGui:".to_string(), "title".to_string()), ("code:".to_string(), "code".to_string())]),
+                body: MethodBody::Primitive,
+                source: None,
+            };
+            let reg_gui_method = self.assemble_method(reg_gui_def, cls.clone())?;
+            let sig_reggui = reg_gui_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig_reggui.clone(), crate::object::som_ref(reg_gui_method));
+            cls.borrow_mut().method_order.push(sig_reggui);
+
+            let reg_gui_class_def = MethodDef {
+                signature: Signature::Keyword(vec![("registerGuiClass:".to_string(), "className".to_string())]),
+                body: MethodBody::Primitive,
+                source: None,
+            };
+            let reg_gui_class_method = self.assemble_method(reg_gui_class_def, cls.clone())?;
+            let sig_reggui_class = reg_gui_class_method.signature.clone();
+            cls.borrow_mut().methods.insert(sig_reggui_class.clone(), crate::object::som_ref(reg_gui_class_method));
+            cls.borrow_mut().method_order.push(sig_reggui_class);
         }
 
         // Add pause primitives to Debugger

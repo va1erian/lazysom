@@ -45,8 +45,18 @@ pub enum DebugEvent {
     },
 }
 
+thread_local! {
+    pub static IS_BG_THREAD: std::cell::Cell<bool> = std::cell::Cell::new(false);
+}
+
 lazy_static::lazy_static! {
     pub static ref VM_RUNNER: Mutex<VmRunner> = Mutex::new(VmRunner::new());
+}
+
+#[derive(Debug, Clone)]
+pub enum GuiRegistration {
+    Snippet { title: String, code: String },
+    Class { class_name: String },
 }
 
 pub struct VmRunner {
@@ -56,6 +66,8 @@ pub struct VmRunner {
     last_completed_result: String,
     last_errored_message: String,
     current_stack: Vec<SerializedFrame>,
+    output_buffer: String,
+    gui_registrations: Vec<GuiRegistration>,
 }
 
 impl VmRunner {
@@ -67,6 +79,8 @@ impl VmRunner {
             last_completed_result: String::new(),
             last_errored_message: String::new(),
             current_stack: Vec::new(),
+            output_buffer: String::new(),
+            gui_registrations: Vec::new(),
         }
     }
 
@@ -83,12 +97,16 @@ impl VmRunner {
         self.last_completed_result.clear();
         self.last_errored_message.clear();
         self.current_stack.clear();
+        self.output_buffer.clear();
+        // Keep gui_registrations from previous runs or clear them? Better to clear them on new evaluation run.
+        self.gui_registrations.clear();
 
         let event_tx_clone = event_tx.clone();
 
         std::thread::Builder::new()
             .name("SomVmRunner".to_string())
             .spawn(move || {
+                IS_BG_THREAD.with(|b| b.set(true));
                 let classpath = vec![
                     PathBuf::from("SOM/Smalltalk"),
                     PathBuf::from("SOM/TestSuite"),
@@ -106,6 +124,26 @@ impl VmRunner {
                 }
             })
             .expect("Failed to spawn background interpreter thread");
+    }
+
+    pub fn append_output(&mut self, text: &str) {
+        self.output_buffer.push_str(text);
+    }
+
+    pub fn take_output(&mut self) -> String {
+        std::mem::take(&mut self.output_buffer)
+    }
+
+    pub fn register_gui(&mut self, title: String, code: String) {
+        self.gui_registrations.push(GuiRegistration::Snippet { title, code });
+    }
+
+    pub fn register_gui_class(&mut self, class_name: String) {
+        self.gui_registrations.push(GuiRegistration::Class { class_name });
+    }
+
+    pub fn take_gui_registrations(&mut self) -> Vec<GuiRegistration> {
+        std::mem::take(&mut self.gui_registrations)
     }
 
     fn run_evaluation(universe: &Universe, code: &str, event_tx: &Sender<DebugEvent>) -> anyhow::Result<()> {

@@ -15,6 +15,7 @@ EguiUi = (
     button: text = primitive
     textEdit: textRef = primitive
     textEditMultiline: textRef = primitive
+    textEditReadonly: text = primitive
 
     horizontal: block = (
         self primHorizontal: [:nativePtr |

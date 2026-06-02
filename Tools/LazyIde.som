@@ -1,5 +1,19 @@
 LazyIde = (
-    | browser workspace debugger helpPanel |
+    | browser workspace debugger helpPanel
+      browserDock workspaceDock debuggerDock helpDock
+      showConfig configThemeIsDark configFontSize configFontName |
+
+    browserDock = ( ^browserDock )
+    browserDock: val = ( browserDock := val. self saveSettings. )
+
+    workspaceDock = ( ^workspaceDock )
+    workspaceDock: val = ( workspaceDock := val. self saveSettings. )
+
+    debuggerDock = ( ^debuggerDock )
+    debuggerDock: val = ( debuggerDock := val. self saveSettings. )
+
+    helpDock = ( ^helpDock )
+    helpDock: val = ( helpDock := val. self saveSettings. )
 
     initialize = (
         browser := Browser new initialize.
@@ -7,6 +21,94 @@ LazyIde = (
         debugger := Debugger new.
         helpPanel := HelpPanel new.
         helpPanel workspace: workspace.
+
+        "Inject back references to LazyIde so the tools can update docking state"
+        browser ide: self.
+        workspace ide: self.
+        debugger ide: self.
+        helpPanel ide: self.
+
+        self loadSettings.
+    )
+
+    loadSettings = (
+        | content lines |
+        "Default settings"
+        configThemeIsDark := true.
+        configFontSize := 14.
+        configFontName := 'Monospace'.
+        
+        browserDock := 'left'.
+        workspaceDock := 'fill'.
+        debuggerDock := 'bottom'.
+        helpDock := 'float'.
+        showConfig := false.
+
+        content := system readText: 'Tools/ide_config.txt'.
+        content ifNil: [ ^self ].
+        
+        lines := content split: '\n'.
+        lines do: [:line |
+            | parts key val |
+            (line length > 0) ifTrue: [
+                parts := line split: ':'.
+                parts length = 2 ifTrue: [
+                    key := parts at: 1.
+                    val := parts at: 2.
+                    
+                    key = 'theme' ifTrue: [ configThemeIsDark := (val beginsWith: 'dark') ].
+                    key = 'fontSize' ifTrue: [
+                        | cleanVal |
+                        cleanVal := val.
+                        (val endsWith: '\r') ifTrue: [ cleanVal := val substringFrom: 1 to: val length - 1 ].
+                        configFontSize := cleanVal asInteger.
+                    ].
+                    key = 'fontName' ifTrue: [
+                        | cleanVal |
+                        cleanVal := val.
+                        (val endsWith: '\r') ifTrue: [ cleanVal := val substringFrom: 1 to: val length - 1 ].
+                        configFontName := cleanVal.
+                    ].
+                    key = 'browserDock' ifTrue: [
+                        | cleanVal |
+                        cleanVal := val.
+                        (val endsWith: '\r') ifTrue: [ cleanVal := val substringFrom: 1 to: val length - 1 ].
+                        browserDock := cleanVal.
+                    ].
+                    key = 'workspaceDock' ifTrue: [
+                        | cleanVal |
+                        cleanVal := val.
+                        (val endsWith: '\r') ifTrue: [ cleanVal := val substringFrom: 1 to: val length - 1 ].
+                        workspaceDock := cleanVal.
+                    ].
+                    key = 'debuggerDock' ifTrue: [
+                        | cleanVal |
+                        cleanVal := val.
+                        (val endsWith: '\r') ifTrue: [ cleanVal := val substringFrom: 1 to: val length - 1 ].
+                        debuggerDock := cleanVal.
+                    ].
+                    key = 'helpDock' ifTrue: [
+                        | cleanVal |
+                        cleanVal := val.
+                        (val endsWith: '\r') ifTrue: [ cleanVal := val substringFrom: 1 to: val length - 1 ].
+                        helpDock := cleanVal.
+                    ].
+                ].
+            ].
+        ].
+    )
+
+    saveSettings = (
+        | content themeStr |
+        themeStr := configThemeIsDark ifTrue: [ 'dark' ] ifFalse: [ 'light' ].
+        content := 'theme:' + themeStr + '\n' +
+                   'fontSize:' + configFontSize asString + '\n' +
+                   'fontName:' + configFontName + '\n' +
+                   'browserDock:' + browserDock + '\n' +
+                   'workspaceDock:' + workspaceDock + '\n' +
+                   'debuggerDock:' + debuggerDock + '\n' +
+                   'helpDock:' + helpDock + '\n'.
+        system writeText: content to: 'Tools/ide_config.txt'.
     )
 
     run = (
@@ -14,24 +116,136 @@ LazyIde = (
     )
 
     renderFrameOn: nativeContextPtr = (
-        | ctx |
+        | ctx hasLeft hasRight hasBottom |
         ctx := EguiContext new.
         ctx handle: nativeContextPtr.
 
-        ctx window: 'System Browser' do: [:winUi |
-            browser renderOn: winUi.
+        "Apply current theme/fonts"
+        ctx applyThemeIsDark: configThemeIsDark fontSize: configFontSize fontName: configFontName.
+
+        "1. Render Top Panel (Menu Bar)"
+        ctx topPanel: 'LazyIdeMenuBar' do: [:barUi |
+            barUi horizontal: [:row |
+                row heading: '🚀 LazySOM Interactive IDE'.
+                row separator.
+                
+                (row button: '⚙ Settings') ifTrue: [ showConfig := showConfig not ].
+                row separator.
+
+                row label: 'Docking: Browser=' + browserDock + ' | Workspace=' + workspaceDock + ' | Debugger=' + debuggerDock + ' | Help=' + helpDock.
+            ].
         ].
 
-        ctx window: 'Workspace' do: [:winUi |
-            workspace renderOn: winUi.
+        "2. Render Left Panel"
+        hasLeft := (browserDock = 'left') or: [ (workspaceDock = 'left') or: [ (debuggerDock = 'left') or: [ helpDock = 'left' ] ] ].
+        hasLeft ifTrue: [
+            ctx leftPanel: 'LazyIdeLeftPanel' do: [:panelUi |
+                self renderPanel: 'left' on: panelUi.
+            ].
         ].
 
-        ctx window: 'Debugger' do: [:winUi |
-            debugger renderOn: winUi.
+        "3. Render Right Panel"
+        hasRight := (browserDock = 'right') or: [ (workspaceDock = 'right') or: [ (debuggerDock = 'right') or: [ helpDock = 'right' ] ] ].
+        hasRight ifTrue: [
+            ctx rightPanel: 'LazyIdeRightPanel' do: [:panelUi |
+                self renderPanel: 'right' on: panelUi.
+            ].
         ].
 
-        ctx window: 'Help & Samples' do: [:winUi |
-            helpPanel renderOn: winUi.
+        "4. Render Bottom Panel"
+        hasBottom := (browserDock = 'bottom') or: [ (workspaceDock = 'bottom') or: [ (debuggerDock = 'bottom') or: [ helpDock = 'bottom' ] ] ].
+        hasBottom ifTrue: [
+            ctx bottomPanel: 'LazyIdeBottomPanel' do: [:panelUi |
+                self renderPanel: 'bottom' on: panelUi.
+            ].
         ].
+
+        "5. Render Central Panel"
+        ctx centralPanel: [:panelUi |
+            self renderPanel: 'fill' on: panelUi.
+        ].
+
+        "6. Render Floating Windows"
+        browserDock = 'float' ifTrue: [
+            ctx window: 'System Browser' do: [:winUi | browser renderOn: winUi. ].
+        ].
+        workspaceDock = 'float' ifTrue: [
+            ctx window: 'Workspace' do: [:winUi | workspace renderOn: winUi. ].
+        ].
+        debuggerDock = 'float' ifTrue: [
+            ctx window: 'Debugger' do: [:winUi | debugger renderOn: winUi. ].
+        ].
+        helpDock = 'float' ifTrue: [
+            ctx window: 'Help & Samples' do: [:winUi | helpPanel renderOn: winUi. ].
+        ].
+
+        "7. Render Settings Window"
+        showConfig ifTrue: [
+            ctx window: 'IDE Settings' do: [:winUi |
+                self renderConfigOn: winUi.
+            ].
+        ].
+    )
+
+    renderPanel: dock on: panelUi = (
+        browserDock = dock ifTrue: [
+            panelUi heading: 'System Browser'.
+            browser renderOn: panelUi.
+            panelUi separator.
+        ].
+        workspaceDock = dock ifTrue: [
+            panelUi heading: 'Workspace'.
+            workspace renderOn: panelUi.
+            panelUi separator.
+        ].
+        debuggerDock = dock ifTrue: [
+            panelUi heading: 'Debugger'.
+            debugger renderOn: panelUi.
+            panelUi separator.
+        ].
+        helpDock = dock ifTrue: [
+            panelUi heading: 'Help & Samples'.
+            helpPanel renderOn: panelUi.
+            panelUi separator.
+        ].
+    )
+
+    renderConfigOn: winUi = (
+        | fontOptions |
+        winUi heading: 'Visual Theme'.
+        winUi horizontal: [:row |
+            (row button: 'Dark Theme') ifTrue: [
+                configThemeIsDark := true.
+                self saveSettings.
+            ].
+            (row button: 'Light Theme') ifTrue: [
+                configThemeIsDark := false.
+                self saveSettings.
+            ].
+        ].
+        winUi separator.
+        
+        winUi heading: 'Font Size'.
+        winUi horizontal: [:row |
+            (row button: '12 px') ifTrue: [ configFontSize := 12. self saveSettings. ].
+            (row button: '14 px') ifTrue: [ configFontSize := 14. self saveSettings. ].
+            (row button: '16 px') ifTrue: [ configFontSize := 16. self saveSettings. ].
+            (row button: '18 px') ifTrue: [ configFontSize := 18. self saveSettings. ].
+            (row button: '20 px') ifTrue: [ configFontSize := 20. self saveSettings. ].
+        ].
+        winUi separator.
+
+        winUi heading: 'UI Font Family'.
+        fontOptions := Array new: 2.
+        fontOptions at: 1 put: 'Proportional'.
+        fontOptions at: 2 put: 'Monospace'.
+        
+        winUi comboBoxSelected: configFontName options: fontOptions do: [:idx :val |
+            configFontName := val.
+            self saveSettings.
+        ].
+        
+        winUi separator.
+        (winUi button: 'Close Settings') ifTrue: [ showConfig := false. ].
     )
 )

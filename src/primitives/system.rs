@@ -37,21 +37,37 @@ pub fn register(prims: &mut HashMap<String, fn(&Value, Vec<Value>, &Universe, &I
     prims.insert("System>>bgTaskFrameVarsAt:".to_string(), sys_bg_task_frame_vars);
     prims.insert("System>>bgTaskFrameSourceAt:".to_string(), sys_bg_task_frame_source);
     prims.insert("System>>bgTaskCommand:".to_string(), sys_bg_task_command);
+    prims.insert("System>>bgTaskOutput".to_string(), sys_bg_task_output);
+    prims.insert("System>>registerGui:code:".to_string(), sys_register_gui);
+    prims.insert("System>>registerGuiClass:".to_string(), sys_register_gui_class);
 }
 
 fn sys_print_string(_: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
     if let Some(arg) = args.get(0) {
-        match arg {
-            Value::String(s) => print!("{}", s.borrow()),
-            Value::Symbol(s) => print!("{}", s),
-            _ => {}
+        let text = match arg {
+            Value::String(s) => s.borrow().clone(),
+            Value::Symbol(s) => s.clone(),
+            _ => String::new(),
+        };
+        let in_bg = crate::vm_runner::IS_BG_THREAD.with(|b| b.get());
+        if in_bg {
+            let mut runner = crate::vm_runner::VM_RUNNER.lock().unwrap();
+            runner.append_output(&text);
+        } else {
+            print!("{}", text);
         }
     }
     Ok(ReturnValue::Value(Value::Nil))
 }
 
 fn sys_print_newline(_: &Value, _: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
-    println!();
+    let in_bg = crate::vm_runner::IS_BG_THREAD.with(|b| b.get());
+    if in_bg {
+        let mut runner = crate::vm_runner::VM_RUNNER.lock().unwrap();
+        runner.append_output("\n");
+    } else {
+        println!();
+    }
     Ok(ReturnValue::Value(Value::Nil))
 }
 
@@ -450,6 +466,33 @@ fn sys_bg_task_command(_: &Value, args: Vec<Value>, _: &Universe, _: &Interprete
             "stop" => runner.stop(),
             _ => {}
         }
+        return Ok(ReturnValue::Value(Value::Boolean(true)));
+    }
+    Ok(ReturnValue::Value(Value::Boolean(false)))
+}
+
+fn sys_bg_task_output(_: &Value, _: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+    let mut runner = crate::vm_runner::VM_RUNNER.lock().unwrap();
+    let out = runner.take_output();
+    Ok(ReturnValue::Value(Value::new_string(out)))
+}
+
+fn sys_register_gui(_: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+    if let (Some(Value::String(title)), Some(Value::String(code))) = (args.get(0), args.get(1)) {
+        let title_str = title.borrow().clone();
+        let code_str = code.borrow().clone();
+        let mut runner = crate::vm_runner::VM_RUNNER.lock().unwrap();
+        runner.register_gui(title_str, code_str);
+        return Ok(ReturnValue::Value(Value::Boolean(true)));
+    }
+    Ok(ReturnValue::Value(Value::Boolean(false)))
+}
+
+fn sys_register_gui_class(_: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+    if let Some(Value::String(class_name)) = args.get(0) {
+        let name_str = class_name.borrow().clone();
+        let mut runner = crate::vm_runner::VM_RUNNER.lock().unwrap();
+        runner.register_gui_class(name_str);
         return Ok(ReturnValue::Value(Value::Boolean(true)));
     }
     Ok(ReturnValue::Value(Value::Boolean(false)))

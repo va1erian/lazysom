@@ -1,5 +1,7 @@
 Browser = (
-    | selectedClass classList editorCode editorType selectedMethod classFilter showClassSide |
+    | selectedClass classList editorCode editorType selectedMethod classFilter showClassSide ide |
+
+    ide: anIde = ( ide := anIde. )
 
     initialize = (
         classList := system classNames.
@@ -74,6 +76,15 @@ Browser = (
     )
 
     renderOn: winUi = (
+        winUi horizontal: [:row |
+            (row button: 'Float') ifTrue: [ ide browserDock: 'float' ].
+            (row button: 'Left') ifTrue: [ ide browserDock: 'left' ].
+            (row button: 'Right') ifTrue: [ ide browserDock: 'right' ].
+            (row button: 'Bottom') ifTrue: [ ide browserDock: 'bottom' ].
+            (row button: 'Max') ifTrue: [ ide browserDock: 'fill' ].
+        ].
+        winUi separator.
+
         winUi columns: 2 do: [:cols |
             | classCol rightCol |
             classCol := cols at: 1.
