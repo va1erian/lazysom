@@ -11,7 +11,11 @@ env:
 
 jobs:
   build_and_test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
     - uses: actions/checkout@v4
@@ -24,6 +28,11 @@ jobs:
     - name: Rust Cache
       uses: Swatinem/rust-cache@v2
 
+    - name: Check for warnings
+      run: cargo check --all-targets
+      env:
+        RUSTFLAGS: -Dwarnings
+
     - name: Build
       run: cargo build --release
 
@@ -34,6 +43,7 @@ jobs:
       run: cargo run --release -- SOM/TestSuite/TestHarness.som
 
     - name: Run all tests/Test*.som scripts
+      shell: bash
       run: |
         for f in tests/Test*.som; do
           if [ -f "$f" ]; then
