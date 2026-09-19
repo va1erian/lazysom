@@ -3,6 +3,7 @@ Always use the latest rust version.
 Never use nightly rust features unless the user explicitly asks for it.
 The SOM directory contains SOM standard classes, tests and examples. 
 Never edit files in the SOM directory.
+The SOM directory is a git submodule; after cloning (or in a fresh git worktree, where submodules are not checked out) run `git submodule update --init`, otherwise everything fails with "Class Object not found in classpath".
 Ensure tests always pass before merging any changes.
 Ensure there are no warnings after "cargo check"
 check if you are in a windows environment before running any commands.

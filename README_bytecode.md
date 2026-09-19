@@ -1,5 +1,7 @@
 # SOM Bytecode and VM Image Documentation
 
+> **Status: experimental and currently broken.** The `--compile-image`/`--run-image` path described here does not work correctly yet — e.g. `(3 + 4) println` prints `nil`, `self`-sends fail, and blocks panic. It is expected to be replaced per the project roadmap (see `docs/ROADMAP.md`); do not rely on it for real programs.
+
 This document describes the structure of the compiled bytecode image format, the bytecodes themselves, and a brief guide on how to implement an interpreter for it.
 
 ## 1. Image Format
