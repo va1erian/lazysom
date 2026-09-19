@@ -191,10 +191,20 @@ fn int_bit_xor(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter
     }
 }
 
+/// A shift larger than this would try to allocate a BigInt with gigabytes
+/// (or more) of limbs, which aborts the process via an allocator failure
+/// rather than returning an error. Cap it well below that point.
+const MAX_SHIFT: u64 = 1_000_000;
+
 fn int_shl(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
     if let (Value::Integer(a), Some(Value::Integer(b))) = (self_val, args.get(0)) {
-        let shift = b.to_u32().unwrap_or(0);
-        Ok(ReturnValue::Value(Value::Integer(a << shift)))
+        if b.is_negative() {
+            return Err(anyhow!("Integer>><<: shift amount must not be negative"));
+        }
+        match b.to_u64() {
+            Some(shift) if shift <= MAX_SHIFT => Ok(ReturnValue::Value(Value::Integer(a << shift as u32))),
+            _ => Err(anyhow!("Integer>><<: shift amount {} is too large", b)),
+        }
     } else {
         Ok(ReturnValue::Value(Value::Nil))
     }
@@ -224,7 +234,12 @@ fn int_max(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) ->
 
 fn int_shr(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
     if let (Value::Integer(a), Some(Value::Integer(b))) = (self_val, args.get(0)) {
-        let shift = b.to_u32().unwrap_or(0);
+        if b.is_negative() {
+            return Err(anyhow!("Integer>>>>: shift amount must not be negative"));
+        }
+        // Shifting a u64 by >= 64 bits is a panic (debug) / unspecified
+        // (release); a shift that large just zeroes out the value anyway.
+        let shift = b.to_u64().unwrap_or(u64::MAX).min(63) as u32;
         let mask = BigInt::from(0xFFFFFFFFFFFFFFFFu64);
         let truncated = a & mask;
         let val_u64 = truncated.to_u64().unwrap_or(0);
@@ -269,7 +284,11 @@ fn int_at_random(self_val: &Value, _: Vec<Value>, _: &Universe, _: &Interpreter)
     if let Value::Integer(a) = self_val {
         let limit = a.to_i64().unwrap_or(1);
         let rand_val = if limit > 0 {
-            (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() % limit as u128) as i64 + 1
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            (nanos % limit as u128) as i64 + 1
         } else {
             1
         };

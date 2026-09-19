@@ -65,17 +65,24 @@ fn gui_ctx_request_repaint(self_val: &Value, _: Vec<Value>, _: &Universe, _: &In
     Ok(ReturnValue::Value(Value::Nil))
 }
 
+/// Reads the arg at `i`, defaulting to `Nil` when too few arguments were
+/// supplied (extract_f32/extract_u8 already treat `Nil` as 0), instead of
+/// indexing `args[i]` directly and panicking.
+fn arg_or_nil(args: &[Value], i: usize) -> Value {
+    args.get(i).cloned().unwrap_or(Value::Nil)
+}
+
 fn gui_painter_fill_rect(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
     if let Some(ui_ptr) = extract_handle(self_val) {
         let ui = unsafe { &mut *(ui_ptr as *mut eframe::egui::Ui) };
-        let x = extract_f32(&args[0]);
-        let y = extract_f32(&args[1]);
-        let w = extract_f32(&args[2]);
-        let h = extract_f32(&args[3]);
-        let r = extract_u8(&args[4]);
-        let g = extract_u8(&args[5]);
-        let b = extract_u8(&args[6]);
-        let a = extract_u8(&args[7]);
+        let x = extract_f32(&arg_or_nil(&args, 0));
+        let y = extract_f32(&arg_or_nil(&args, 1));
+        let w = extract_f32(&arg_or_nil(&args, 2));
+        let h = extract_f32(&arg_or_nil(&args, 3));
+        let r = extract_u8(&arg_or_nil(&args, 4));
+        let g = extract_u8(&arg_or_nil(&args, 5));
+        let b = extract_u8(&arg_or_nil(&args, 6));
+        let a = extract_u8(&arg_or_nil(&args, 7));
         let rect = eframe::egui::Rect::from_min_size(eframe::egui::pos2(x, y), eframe::egui::vec2(w, h));
         let color = eframe::egui::Color32::from_rgba_unmultiplied(r, g, b, a);
         ui.painter().rect_filled(rect, 0.0, color);
@@ -86,13 +93,13 @@ fn gui_painter_fill_rect(self_val: &Value, args: Vec<Value>, _: &Universe, _: &I
 fn gui_painter_fill_circle(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
     if let Some(ui_ptr) = extract_handle(self_val) {
         let ui = unsafe { &mut *(ui_ptr as *mut eframe::egui::Ui) };
-        let x = extract_f32(&args[0]);
-        let y = extract_f32(&args[1]);
-        let radius = extract_f32(&args[2]);
-        let r = extract_u8(&args[3]);
-        let g = extract_u8(&args[4]);
-        let b = extract_u8(&args[5]);
-        let a = extract_u8(&args[6]);
+        let x = extract_f32(&arg_or_nil(&args, 0));
+        let y = extract_f32(&arg_or_nil(&args, 1));
+        let radius = extract_f32(&arg_or_nil(&args, 2));
+        let r = extract_u8(&arg_or_nil(&args, 3));
+        let g = extract_u8(&arg_or_nil(&args, 4));
+        let b = extract_u8(&arg_or_nil(&args, 5));
+        let a = extract_u8(&arg_or_nil(&args, 6));
         let color = eframe::egui::Color32::from_rgba_unmultiplied(r, g, b, a);
         ui.painter().circle_filled(eframe::egui::pos2(x, y), radius, color);
     }
@@ -102,15 +109,15 @@ fn gui_painter_fill_circle(self_val: &Value, args: Vec<Value>, _: &Universe, _: 
 fn gui_painter_draw_line(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
     if let Some(ui_ptr) = extract_handle(self_val) {
         let ui = unsafe { &mut *(ui_ptr as *mut eframe::egui::Ui) };
-        let x1 = extract_f32(&args[0]);
-        let y1 = extract_f32(&args[1]);
-        let x2 = extract_f32(&args[2]);
-        let y2 = extract_f32(&args[3]);
-        let width = extract_f32(&args[4]);
-        let r = extract_u8(&args[5]);
-        let g = extract_u8(&args[6]);
-        let b = extract_u8(&args[7]);
-        let a = extract_u8(&args[8]);
+        let x1 = extract_f32(&arg_or_nil(&args, 0));
+        let y1 = extract_f32(&arg_or_nil(&args, 1));
+        let x2 = extract_f32(&arg_or_nil(&args, 2));
+        let y2 = extract_f32(&arg_or_nil(&args, 3));
+        let width = extract_f32(&arg_or_nil(&args, 4));
+        let r = extract_u8(&arg_or_nil(&args, 5));
+        let g = extract_u8(&arg_or_nil(&args, 6));
+        let b = extract_u8(&arg_or_nil(&args, 7));
+        let a = extract_u8(&arg_or_nil(&args, 8));
         let color = eframe::egui::Color32::from_rgba_unmultiplied(r, g, b, a);
         let stroke = eframe::egui::Stroke::new(width, color);
         ui.painter().line_segment([eframe::egui::pos2(x1, y1), eframe::egui::pos2(x2, y2)], stroke);
@@ -445,7 +452,9 @@ fn gui_scroll_area(self_val: &Value, args: Vec<Value>, _universe: &Universe, int
 fn gui_columns(self_val: &Value, args: Vec<Value>, universe: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
     if let (Some(ui_ptr), Some(Value::Integer(count)), Some(Value::Block(block))) = (extract_handle(self_val), args.get(0), args.get(1)) {
         let ui = unsafe { &mut *(ui_ptr as *mut eframe::egui::Ui) };
-        let count_usize = count.to_usize().unwrap_or(2);
+        // egui's Ui::columns divides available width by the column count,
+        // so 0 (or a negative/huge count) must never reach it.
+        let count_usize = count.to_usize().filter(|&c| c > 0).unwrap_or(1).min(1024);
         let mut ret = Ok(ReturnValue::Value(Value::Nil));
         ui.columns(count_usize, |cols| {
             let mut col_objs = Vec::new();
