@@ -24,7 +24,8 @@ The project is structured as a classic interpreter:
 - **Primitives (`src/primitives/`)**: Implements built-in methods for core classes, split into modules: `core` (Object/Class/Block basics), `numbers`, `collections` (Array/String), `system` (I/O, classpath), `async_io` (async/network primitives), `gui`, `debugger`, and shared `helpers`.
 - **GUI (`src/gui.rs`)**: A minimal Smalltalk-style IDE (Browser/Workspace/debugger) built on `eframe`/`egui`, launched with `--gui`.
 - **Serialization (`src/serialize.rs`)**: Object graph serialization support (e.g. JSON/MessagePack) exposed to SOM code via primitives.
-- **Bytecode compiler/VM (`src/compiler.rs`, `src/bytecode.rs`, `src/bytecode_interpreter.rs`, `src/vm_runner.rs`)**: An experimental AST-to-bytecode compiler and stack-based VM used by `--compile-image`/`--run-image`. See the note under Usage — it is currently broken and not the interpreter's normal execution path.
+- **Background runner (`src/vm_runner.rs`)**: Runs IDE snippets on a background thread with pause/resume/step commands for the debugger.
+- **Bytecode compiler/VM (`src/compiler.rs`, `src/bytecode.rs`, `src/bytecode_interpreter.rs`)**: An experimental AST-to-bytecode compiler and stack-based VM used by `--compile-image`/`--run-image`. See the note under Usage — it is currently broken and not the interpreter's normal execution path.
 - **Threading**: The interpreter runs in a separate thread with an increased stack size (128 MB) to accommodate deep recursions typical in SOM programs.
 
 ## Usage
@@ -96,4 +97,4 @@ cargo run -- SOM/TestSuite/TestHarness.som Array
 
 ## Roadmap
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the project's direction, including plans to replace the experimental bytecode VM (landing on `main` via PR #13).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the project's direction, including plans to replace the experimental bytecode VM.
