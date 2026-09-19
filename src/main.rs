@@ -24,6 +24,9 @@ struct Args {
     #[arg(long, help = "Run the application with eframe/egui GUI")]
     gui: bool,
 
+    #[arg(long, value_name = "N", help = "Maximum nested SOM method/block activations before a clean 'Stack overflow' error is raised (default: 10000, or 150 under --gui, which runs on the main thread)")]
+    max_depth: Option<usize>,
+
     #[arg(trailing_var_arg = true)]
     rest: Vec<String>,
 }
@@ -32,12 +35,20 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     if args.gui {
-        // Run in main thread for winit event loop requirements
+        // Run in main thread for winit event loop requirements. The main thread only has the
+        // OS-default stack size (as little as 1 MiB on Windows), so the interpreter created in
+        // this case must use the lower `MAIN_THREAD_MAX_DEPTH` limit unless the user overrode
+        // it explicitly with `--max-depth` (in which case that's on them). See the comment
+        // above `DEFAULT_MAX_DEPTH` / `MAIN_THREAD_MAX_DEPTH` in interpreter.rs.
         return run_with_args(args);
     }
 
+    let stack_size = std::cmp::max(
+        lazysom::interpreter::RECOMMENDED_STACK_SIZE,
+        args.max_depth.map(|d| d.saturating_mul(8 * 1024)).unwrap_or(0),
+    );
     let child = std::thread::Builder::new()
-        .stack_size(128 * 1024 * 1024)
+        .stack_size(stack_size)
         .spawn(move || {
             run_with_args(args)
         })?;
@@ -123,7 +134,12 @@ fn run_with_args(args: Args) -> Result<()> {
     universe.set_global("true", Value::Boolean(true));
     universe.set_global("false", Value::Boolean(false));
 
-    let interpreter = Interpreter::new(&universe);
+    let max_depth = args.max_depth.unwrap_or(if args.gui {
+        lazysom::interpreter::MAIN_THREAD_MAX_DEPTH
+    } else {
+        lazysom::interpreter::DEFAULT_MAX_DEPTH
+    });
+    let interpreter = Interpreter::with_max_depth(&universe, max_depth);
 
     if !args.rest.is_empty() {
         let filename = &args.rest[0];
@@ -150,7 +166,7 @@ fn run_with_args(args: Args) -> Result<()> {
                 interpreter.dispatch(Value::Object(instance.clone()), "run", Vec::new())?;
             }
 
-            let app = lazysom::gui::SomGuiApp::new(std::sync::Arc::new(universe), Value::Object(instance));
+            let app = lazysom::gui::SomGuiApp::with_max_depth(std::sync::Arc::new(universe), Value::Object(instance), max_depth);
             let options = eframe::NativeOptions::default();
             eframe::run_native(
                 "LazySOM GUI",

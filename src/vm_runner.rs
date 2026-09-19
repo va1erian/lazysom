@@ -103,8 +103,12 @@ impl VmRunner {
 
         let event_tx_clone = event_tx.clone();
 
+        // Sized to comfortably run the interpreter at its default max call depth
+        // (interpreter::DEFAULT_MAX_DEPTH); see the stack-cost comment above
+        // interpreter::DEFAULT_MAX_DEPTH for how this number was derived.
         std::thread::Builder::new()
             .name("SomVmRunner".to_string())
+            .stack_size(crate::interpreter::RECOMMENDED_STACK_SIZE)
             .spawn(move || {
                 IS_BG_THREAD.with(|b| b.set(true));
                 let classpath = vec![
