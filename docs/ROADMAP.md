@@ -21,7 +21,7 @@ as it already has, and local worktrees need `git submodule update --init`).
 |---|---|
 | `cargo build --release`, `cargo check` | ✅ builds, 0 warnings |
 | `cargo test --release` | ✅ 21/21 (12 GC stress + 9 integration) |
-| SOM TestSuite on AST interpreter | ⚠️ 220/221: `HashTest>>testHashtable` fails ("needs to contain 2") |
+| SOM TestSuite on AST interpreter | ✅ 221/221 after the block-scoping fix (`c5c7980`); before it, `HashTest>>testHashtable` failed because block activations resolved fields before the method's arguments |
 | `tests/Test*.som`, `Async/AsyncIOTest` | ✅ run and print expected output |
 | Bytecode VM (`--compile-image` / `--run-image`) | ❌ **non-functional**: `(3 + 4) println` prints `nil`; `self fib: 25` fails with "Method fib: not found in image for Integer" (wrong receiver on self-sends); `#(1 2 3) do: [...]` panics (`bytecode_interpreter.rs:459` index out of bounds); TestHarness image runs and prints nothing. Every image is ~240 KB regardless of program. |
 | `3 fooBar` (doesNotUnderstand) | ❌ prints `ERROR: Method fooBar not found in class Integer` and then **keeps running with nil** (exit code 0). Cause: `System>>signalError:` is declared `primitive` in SOM but not implemented, and unimplemented primitives silently return `nil`. |
@@ -600,9 +600,7 @@ The AST interpreter is the oracle for the new VM, so its silent failures get fix
   return errors instead. Add a test that runs every primitive with bad arguments.
 - Raise the dispatch depth limit to count method activations, not every nested dispatch,
   and make it configurable.
-- Fix `HashTest>>testHashtable` so the TestSuite is 221/221 (it fails on Windows and the
-  harness exits 1; CI runs on Linux only, so check whether it is platform-dependent hashing
-  and add a Windows job to CI, since Windows is a shipping target).
+- Add a Windows job to CI (Windows is a shipping target; CI only runs on Linux today).
 - Mark the bytecode VM path (`--compile-image`/`--run-image`) as experimental in the
   README until Phase 1 replaces it.
 - **Exit**: every probe in §0.1 either works or stops with a clear error and non-zero exit.
