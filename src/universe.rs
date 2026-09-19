@@ -556,7 +556,12 @@ impl Universe {
         } else {
             match def.body {
                 MethodBody::Primitive => {
-                    crate::object::MethodBody::Primitive(|_, _, _, _| Ok(crate::interpreter::ReturnValue::Value(Value::Nil)))
+                    return Err(anyhow!(
+                        "no primitive implementation registered for {} (declared `= primitive` in class {}, selector `{}`)",
+                        key,
+                        holder.borrow().name,
+                        signature
+                    ));
                 }
                 MethodBody::Block(b) => crate::object::MethodBody::Ast(b),
             }

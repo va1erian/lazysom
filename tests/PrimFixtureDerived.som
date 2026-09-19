@@ -1,0 +1,3 @@
+PrimFixtureDerived = PrimFixtureBase (
+    describe = ( ^'derived' )
+)

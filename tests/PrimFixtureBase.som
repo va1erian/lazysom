@@ -1,0 +1,3 @@
+PrimFixtureBase = Object (
+    describe = ( ^'base' )
+)

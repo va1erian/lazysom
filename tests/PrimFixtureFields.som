@@ -1,0 +1,6 @@
+PrimFixtureFields = Object (
+    | value |
+
+    value: v = ( value := v )
+    value = ( ^value )
+)
