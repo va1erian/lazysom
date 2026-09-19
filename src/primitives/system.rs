@@ -1,7 +1,7 @@
 use crate::interpreter::{Interpreter, ReturnValue};
 use crate::object::*;
 use crate::universe::Universe;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use std::collections::HashMap;
@@ -28,6 +28,15 @@ pub fn register(prims: &mut HashMap<String, fn(&Value, Vec<Value>, &Universe, &I
     prims.insert("System>>readText:".to_string(), sys_file_read_text);
     prims.insert("System>>writeText:to:".to_string(), sys_file_write_text);
     prims.insert("System>>appendText:to:".to_string(), sys_file_append_text);
+    // Tools/File.som declares these on the File class side; share the same
+    // implementation as the System>>readText:/writeText:to: primitives above.
+    prims.insert("File class>>readText:".to_string(), sys_file_read_text);
+    prims.insert("File class>>writeText:to:".to_string(), sys_file_write_text);
+
+    prims.insert("System>>signalError:".to_string(), sys_signal_error);
+    prims.insert("System>>errorPrint:".to_string(), sys_error_print);
+    prims.insert("System>>errorPrintln:".to_string(), sys_error_println);
+    prims.insert("System>>printStackTrace".to_string(), sys_print_stack_trace);
 
     prims.insert("System>>evaluateAsync:".to_string(), sys_evaluate_async);
     prims.insert("System>>bgTaskStatus".to_string(), sys_bg_task_status);
@@ -486,6 +495,55 @@ fn sys_register_gui(_: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) 
         return Ok(ReturnValue::Value(Value::Boolean(true)));
     }
     Ok(ReturnValue::Value(Value::Boolean(false)))
+}
+
+fn sys_signal_error(_: &Value, args: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
+    let msg = match args.get(0) {
+        Some(Value::String(s)) => s.borrow().clone(),
+        Some(Value::Symbol(s)) => s.clone(),
+        Some(other) => format!("{:?}", other),
+        None => String::new(),
+    };
+
+    eprintln!("{}", msg);
+    for frame in interpreter.serialize_stack() {
+        eprintln!("  at {}", frame.name);
+    }
+
+    Err(anyhow!("{}", msg))
+}
+
+fn sys_error_print(_: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+    if let Some(arg) = args.get(0) {
+        let text = match arg {
+            Value::String(s) => s.borrow().clone(),
+            Value::Symbol(s) => s.clone(),
+            _ => String::new(),
+        };
+        eprint!("{}", text);
+    }
+    Ok(ReturnValue::Value(Value::Nil))
+}
+
+fn sys_error_println(_: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+    if let Some(arg) = args.get(0) {
+        let text = match arg {
+            Value::String(s) => s.borrow().clone(),
+            Value::Symbol(s) => s.clone(),
+            _ => String::new(),
+        };
+        eprintln!("{}", text);
+    } else {
+        eprintln!();
+    }
+    Ok(ReturnValue::Value(Value::Nil))
+}
+
+fn sys_print_stack_trace(_: &Value, _: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
+    for frame in interpreter.serialize_stack() {
+        eprintln!("  at {}", frame.name);
+    }
+    Ok(ReturnValue::Value(Value::Boolean(true)))
 }
 
 fn sys_register_gui_class(_: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {

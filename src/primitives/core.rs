@@ -19,6 +19,9 @@ pub fn register(prims: &mut HashMap<String, fn(&Value, Vec<Value>, &Universe, &I
     prims.insert("Object>>objectSize".to_string(), obj_object_size);
     prims.insert("Object>>respondsTo:".to_string(), obj_responds_to);
     prims.insert("Object>>halt".to_string(), crate::primitives::debugger::dbg_halt);
+    prims.insert("Object>>inspect".to_string(), obj_inspect);
+    prims.insert("Object>>instVarNamed:".to_string(), obj_inst_var_named);
+    prims.insert("Object>>perform:withArguments:inSuperclass:".to_string(), obj_perform_with_args_in_superclass);
 
     prims.insert("Class>>new".to_string(), class_new);
     prims.insert("Class>>name".to_string(), class_name);
@@ -31,9 +34,11 @@ pub fn register(prims: &mut HashMap<String, fn(&Value, Vec<Value>, &Universe, &I
     prims.insert("Method>>signature".to_string(), method_signature);
     prims.insert("Method>>holder".to_string(), method_holder);
     prims.insert("Method>>source".to_string(), method_source);
+    prims.insert("Method>>invokeOn:with:".to_string(), method_invoke_on_with);
     prims.insert("Primitive>>signature".to_string(), method_signature);
     prims.insert("Primitive>>holder".to_string(), method_holder);
     prims.insert("Primitive>>source".to_string(), method_source);
+    prims.insert("Primitive>>invokeOn:with:".to_string(), method_invoke_on_with);
 
     prims.insert("Nil>>asString".to_string(), nil_as_string);
     prims.insert("Symbol>>asString".to_string(), symbol_as_string);
@@ -52,6 +57,14 @@ pub fn register(prims: &mut HashMap<String, fn(&Value, Vec<Value>, &Universe, &I
     prims.insert("Block>>value".to_string(), block_value);
     prims.insert("Block>>value:".to_string(), block_value);
     prims.insert("Block>>value:with:".to_string(), block_value);
+    // Block1/Block2/Block3 declare their own `value`/`value:`/`value:with:` as
+    // primitives (see SOM/Smalltalk/Block{1,2,3}.som). The AST interpreter special-cases
+    // block invocation in Interpreter::dispatch_internal_actual and never actually calls
+    // these, but a class-load-time check requires every declared primitive to be
+    // registered, so point them at the same implementation as Block>>value(:with:).
+    prims.insert("Block1>>value".to_string(), block_value);
+    prims.insert("Block2>>value:".to_string(), block_value);
+    prims.insert("Block3>>value:with:".to_string(), block_value);
 }
 
 fn obj_perform(self_val: &Value, args: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
@@ -437,4 +450,104 @@ fn block_value(self_val: &Value, args: Vec<Value>, _: &Universe, interpreter: &I
     } else {
         Ok(ReturnValue::Value(Value::Nil))
     }
+}
+
+fn value_to_display_string(val: &Value) -> String {
+    match val {
+        Value::String(s) => s.borrow().clone(),
+        Value::Symbol(s) => s.clone(),
+        other => format!("{:?}", other),
+    }
+}
+
+fn obj_inspect(self_val: &Value, _: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+    match self_val {
+        Value::Object(obj) => {
+            let obj_ref = obj.borrow();
+            let cls = obj_ref.class.clone();
+            let cls_name = cls.borrow().name.clone();
+            println!("{}", cls_name);
+            let field_names = cls.borrow().instance_fields.clone();
+            for (idx, name) in field_names.iter().enumerate() {
+                let val = obj_ref.fields.get(idx).cloned().unwrap_or(Value::Nil);
+                println!("  {} = {}", name, value_to_display_string(&val));
+            }
+        }
+        Value::Class(cls) => {
+            println!("{} class", cls.borrow().name);
+            let mc = cls.borrow().class.clone();
+            if let Some(mc) = mc {
+                let field_names = mc.borrow().instance_fields.clone();
+                for (idx, name) in field_names.iter().enumerate() {
+                    let val = cls.borrow().fields.get(idx).cloned().unwrap_or(Value::Nil);
+                    println!("  {} = {}", name, value_to_display_string(&val));
+                }
+            }
+        }
+        other => {
+            println!("{}", value_to_display_string(other));
+        }
+    }
+    Ok(ReturnValue::Value(self_val.clone()))
+}
+
+fn obj_inst_var_named(self_val: &Value, args: Vec<Value>, _: &Universe, _: &Interpreter) -> Result<ReturnValue> {
+    let name = match args.get(0) {
+        Some(Value::String(s)) => s.borrow().clone(),
+        Some(Value::Symbol(s)) => s.clone(),
+        _ => return Err(anyhow!("instVarNamed: expects a String or Symbol argument")),
+    };
+
+    match self_val {
+        Value::Object(obj) => {
+            let obj_ref = obj.borrow();
+            let idx = obj_ref.class.borrow().instance_fields.iter().position(|f| f == &name);
+            match idx {
+                Some(i) => Ok(ReturnValue::Value(obj_ref.fields[i].clone())),
+                None => Err(anyhow!("instance variable '{}' not found in class {}", name, obj_ref.class.borrow().name)),
+            }
+        }
+        Value::Class(cls) => {
+            let idx = cls.borrow().class.as_ref()
+                .and_then(|mc| mc.borrow().instance_fields.iter().position(|f| f == &name));
+            match idx {
+                Some(i) => Ok(ReturnValue::Value(cls.borrow().fields[i].clone())),
+                None => Err(anyhow!("instance variable '{}' not found in class {}", name, cls.borrow().name)),
+            }
+        }
+        _ => Err(anyhow!("instVarNamed: is not supported on this kind of receiver")),
+    }
+}
+
+fn obj_perform_with_args_in_superclass(self_val: &Value, args: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
+    let selector = match args.get(0) {
+        Some(Value::String(s)) => s.borrow().clone(),
+        Some(Value::Symbol(s)) => s.clone(),
+        _ => return Err(anyhow!("perform:withArguments:inSuperclass: expects a Symbol selector")),
+    };
+    let perform_args = match args.get(1) {
+        Some(Value::Array(arr)) => arr.borrow().clone(),
+        Some(_) => return Err(anyhow!("perform:withArguments:inSuperclass: expects an Array of arguments")),
+        None => Vec::new(),
+    };
+    let cls = match args.get(2) {
+        Some(Value::Class(cls)) => cls.clone(),
+        _ => return Err(anyhow!("perform:withArguments:inSuperclass: expects a Class as the third argument")),
+    };
+    let method = interpreter.lookup_method(cls, &selector)?;
+    interpreter.run_method_internal(method, self_val.clone(), perform_args)
+}
+
+fn method_invoke_on_with(self_val: &Value, args: Vec<Value>, _: &Universe, interpreter: &Interpreter) -> Result<ReturnValue> {
+    let method = match self_val {
+        Value::Method(m) => m.clone(),
+        _ => return Err(anyhow!("invokeOn:with: sent to a non-Method/Primitive value")),
+    };
+    let receiver = args.get(0).cloned().unwrap_or(Value::Nil);
+    let call_args = match args.get(1) {
+        Some(Value::Array(arr)) => arr.borrow().clone(),
+        Some(_) => return Err(anyhow!("invokeOn:with: expects an Array of arguments")),
+        None => Vec::new(),
+    };
+    interpreter.run_method_internal(method, receiver, call_args)
 }
