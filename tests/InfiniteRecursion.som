@@ -1,0 +1,8 @@
+InfiniteRecursion = (
+    "Helper class for tests/recursion_depth.rs: a method with no base case, used to verify
+     that the interpreter's call-depth limit produces a clean error instead of a Rust stack
+     overflow."
+    recurse = (
+        ^ self recurse
+    )
+)

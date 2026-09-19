@@ -8,21 +8,32 @@ pub struct SomGuiApp {
     universe: Arc<Universe>,
     root_object: Value,
     custom_windows: Vec<(String, Value)>,
+    /// Max SOM method/block activation depth for interpreters created here. This app's
+    /// `update` runs on the main thread (an eframe/winit requirement), which only has the
+    /// OS-default stack size, so this must stay at or below
+    /// `interpreter::MAIN_THREAD_MAX_DEPTH` unless the caller knows the main thread has a
+    /// larger stack.
+    max_depth: usize,
 }
 
 impl SomGuiApp {
     pub fn new(universe: Arc<Universe>, root_object: Value) -> Self {
+        Self::with_max_depth(universe, root_object, crate::interpreter::MAIN_THREAD_MAX_DEPTH)
+    }
+
+    pub fn with_max_depth(universe: Arc<Universe>, root_object: Value, max_depth: usize) -> Self {
         Self {
             universe,
             root_object,
             custom_windows: Vec::new(),
+            max_depth,
         }
     }
 }
 
 impl eframe::App for SomGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let interpreter = Interpreter::new(&self.universe);
+        let interpreter = Interpreter::with_max_depth(&self.universe, self.max_depth);
 
         // Poll background VM runner events and repaint if running
         let new_guis = {

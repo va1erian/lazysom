@@ -22,9 +22,83 @@ impl<'a> Drop for ActivationGuard<'a> {
     }
 }
 
+// --- Call-depth limiting -----------------------------------------------------------------
+//
+// The interpreter is a tree-walker that recurses on the *Rust* stack: one SOM method or
+// block activation costs a bounded, roughly constant amount of Rust stack (a handful of
+// nested Rust frames: dispatch_internal -> run_method_internal -> evaluate_block ->
+// evaluate_expression -> ... -> dispatch_internal for the next send). We measured this cost
+// empirically with a small standalone probe (spawn a thread with a fixed stack size, run the
+// classic `down: n = ( n = 0 ifTrue: [ ^0 ]. ^ 1 + (self down: n - 1) )` benchmark from the
+// task with `max_depth` set to a huge number so our own limit never trips, and binary-search
+// the largest `n` that does not crash the thread with a genuine Rust stack overflow):
+//
+//   thread stack | largest n that ran OK | smallest n that overflowed the Rust stack
+//   -------------+------------------------+-------------------------------------------
+//        2 MiB   |          550           |                 600
+//        8 MiB   |         2,350           |               2,400
+//
+// Both data points agree on a cost of ~3.5-3.8 KiB of Rust stack per SOM method activation
+// (2 MiB / 550 =~ 3.8 KiB, 8 MiB / 2,350 =~ 3.6 KiB, 8 MiB / 2,400 =~ 3.5 KiB). Doubling that
+// for safety margin (deeper expressions than a single `+`, future code paths that add a frame
+// or two, non-release/debug builds) gives a working budget of ~7 KiB/activation:
+//
+//   DEFAULT_MAX_DEPTH     = 10_000 activations -> needs >= 10_000 * 7 KiB ~= 70 MiB of stack.
+//                           The CLI thread in main.rs and the vm_runner.rs background thread
+//                           are both spawned with RECOMMENDED_STACK_SIZE = 128 MiB, which is
+//                           >3x the raw measured requirement (10_000 * 3.8 KiB ~= 38 MiB) and
+//                           comfortably covers 10_000 activations with room to spare (the
+//                           measured crash points above scale to ~34,000-38,000 activations
+//                           surviving on a 128 MiB stack).
+//   MAIN_THREAD_MAX_DEPTH = 150 activations    -> needs >= 150 * 7 KiB ~= 1.05 MiB using the
+//                           safety-margined figure, or ~570 KiB using the raw measured cost.
+//                           Windows' default main-thread stack is only 1 MiB (per AGENTS.md /
+//                           the task brief), so this limit is kept deliberately low, leaving
+//                           several hundred KiB of headroom for eframe/egui/winit's own stack
+//                           usage on that same thread.
+//
+// `--gui` runs the eframe event loop on the main thread (a hard eframe/winit requirement), so
+// any interpreter that can run there (the initial `run:`/`run` dispatch in main.rs, and the
+// per-frame interpreter in gui.rs) must use MAIN_THREAD_MAX_DEPTH instead of the default.
+
+/// Default maximum number of nested SOM method/block activations, for interpreters that run
+/// on a thread with a large explicit stack (the CLI thread in main.rs, the vm_runner.rs
+/// background thread). See the comment above for how this was derived.
+pub const DEFAULT_MAX_DEPTH: usize = 10_000;
+
+/// Maximum call depth for interpreters that may run on a thread with only the OS-default
+/// stack size (in particular the main thread while `--gui` is active, since eframe/winit
+/// require the event loop to run there). See the comment above for how this was derived.
+pub const MAIN_THREAD_MAX_DEPTH: usize = 150;
+
+/// Recommended stack size (bytes) for a thread that will run the interpreter at
+/// `DEFAULT_MAX_DEPTH`. Kept here so callers that spawn interpreter threads (main.rs,
+/// vm_runner.rs) can size them consistently with the limit above.
+pub const RECOMMENDED_STACK_SIZE: usize = 128 * 1024 * 1024;
+
+struct DepthGuard<'a> {
+    depth: &'a std::cell::Cell<usize>,
+}
+
+impl<'a> DepthGuard<'a> {
+    fn new(depth: &'a std::cell::Cell<usize>) -> Self {
+        depth.set(depth.get() + 1);
+        Self { depth }
+    }
+}
+
+impl<'a> Drop for DepthGuard<'a> {
+    fn drop(&mut self) {
+        self.depth.set(self.depth.get() - 1);
+    }
+}
+
 pub struct Interpreter<'a> {
     pub universe: &'a Universe,
+    /// Number of SOM method/block activations currently on the (Rust) call stack.
     pub depth: std::cell::Cell<usize>,
+    /// Maximum allowed value of `depth` before a clean "Stack overflow" error is raised.
+    pub max_depth: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -36,7 +110,11 @@ pub enum ReturnValue {
 
 impl<'a> Interpreter<'a> {
     pub fn new(universe: &'a Universe) -> Self {
-        Self { universe, depth: std::cell::Cell::new(0) }
+        Self::with_max_depth(universe, DEFAULT_MAX_DEPTH)
+    }
+
+    pub fn with_max_depth(universe: &'a Universe, max_depth: usize) -> Self {
+        Self { universe, depth: std::cell::Cell::new(0), max_depth }
     }
 
     pub fn evaluate_snippet(&self, code: &str) -> Result<Value> {
@@ -70,6 +148,19 @@ impl<'a> Interpreter<'a> {
         match body {
             crate::object::MethodBody::Primitive(f) => f(&self_val, args, self.universe, self),
             crate::object::MethodBody::Ast(block) => {
+                let method_sig = method.borrow().signature.clone();
+                let method_src = method.borrow().source.clone();
+
+                if self.depth.get() >= self.max_depth {
+                    return Err(anyhow!(
+                        "Stack overflow: maximum call depth {} exceeded in {}>>{}",
+                        self.max_depth,
+                        holder.borrow().name,
+                        method_sig
+                    ));
+                }
+                let _depth_guard = DepthGuard::new(&self.depth);
+
                 let mut arg_map = std::collections::HashMap::new();
                 for (i, name) in parameters.iter().enumerate() {
                     if let Some(val) = args.get(i) {
@@ -80,9 +171,6 @@ impl<'a> Interpreter<'a> {
                 for local_name in &block.locals {
                     locals.insert(local_name.clone(), Value::Nil);
                 }
-
-                let method_sig = method.borrow().signature.clone();
-                let method_src = method.borrow().source.clone();
 
                 let activation = som_ref(Activation {
                     holder: Some(holder),
@@ -138,17 +226,7 @@ impl<'a> Interpreter<'a> {
 
     pub fn evaluate_expression(&self, expr: &Expression, activation: SomRef<Activation>) -> Result<ReturnValue> {
         self.check_debug_state()?;
-
-        let depth = self.depth.get() + 1;
-        self.depth.set(depth);
-        if depth > 2000 {
-            return Err(anyhow!("Recursion limit exceeded"));
-        }
-        
-        let res = self.evaluate_expression_internal(expr, activation);
-        
-        self.depth.set(self.depth.get() - 1);
-        res
+        self.evaluate_expression_internal(expr, activation)
     }
 
     fn evaluate_expression_internal(&self, expr: &Expression, activation: SomRef<Activation>) -> Result<ReturnValue> {
@@ -250,6 +328,23 @@ impl<'a> Interpreter<'a> {
     }
 
     pub fn run_block(&self, block: SomRef<SomBlock>, args: Vec<Value>) -> Result<ReturnValue> {
+        if self.depth.get() >= self.max_depth {
+            let block_ref = block.borrow();
+            let holder_name = block_ref.context.as_ref()
+                .and_then(|c| c.borrow().holder.as_ref().map(|h| h.borrow().name.clone()))
+                .unwrap_or_else(|| "Block".to_string());
+            let method_name = block_ref.context.as_ref()
+                .and_then(|c| c.borrow().holder_method_name.clone())
+                .unwrap_or_else(|| "value".to_string());
+            return Err(anyhow!(
+                "Stack overflow: maximum call depth {} exceeded in {}>>{}",
+                self.max_depth,
+                holder_name,
+                method_name
+            ));
+        }
+        let _depth_guard = DepthGuard::new(&self.depth);
+
         let block_ref = block.borrow();
         let mut arg_map = std::collections::HashMap::new();
         for (i, name) in block_ref.body.parameters.iter().enumerate() {
@@ -397,16 +492,7 @@ impl<'a> Interpreter<'a> {
     }
 
     pub fn dispatch_internal(&self, receiver: Value, selector: &str, args: Vec<Value>) -> Result<ReturnValue> {
-        let current_depth = self.depth.get() + 1;
-        self.depth.set(current_depth);
-        if current_depth > 1000 {
-            return Err(anyhow!("Recursion limit exceeded in dispatch"));
-        }
-
-        let res = self.dispatch_internal_actual(receiver, selector, args);
-        
-        self.depth.set(self.depth.get() - 1);
-        res
+        self.dispatch_internal_actual(receiver, selector, args)
     }
 
     fn dispatch_internal_actual(&self, receiver: Value, selector: &str, args: Vec<Value>) -> Result<ReturnValue> {

@@ -1,0 +1,19 @@
+TestDeepRecursion = (
+    "Regression test for the call-depth limit: a plain recursive SOM method must be able to
+     go thousands of levels deep without hitting a Rust stack overflow or an artificially low
+     ad-hoc 'recursion limit exceeded' error. See interpreter.rs (DEFAULT_MAX_DEPTH)."
+    down: n = (
+        n = 0 ifTrue: [ ^0 ].
+        ^ 1 + (self down: n - 1)
+    )
+
+    run = (
+        | result |
+        result := self down: 5000.
+        result = 5000 ifFalse: [
+            ('FAIL: expected 5000, got ' + result asString) println.
+            system exit: 1
+        ].
+        ('deep recursion to 5000: ok, result = ' + result asString) println.
+    )
+)
