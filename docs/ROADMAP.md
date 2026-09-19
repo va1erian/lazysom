@@ -17,6 +17,11 @@ Release build on Windows 11, Rust 1.98, with the `SOM` submodule contents presen
 tests fail with `Class Object not found in classpath`, so CI needs `submodules: recursive`
 as it already has, and local worktrees need `git submodule update --init`).
 
+> **Correction (Phase 0 work):** the original baseline was measured against a local `SOM/`
+> checkout with uncommitted edits (`Object>>error:` rerouted to a new
+> `System>>signalError:`). Rows below marked *corrected* describe the pristine upstream
+> submodule, which is what CI and users get.
+
 | Check | Result |
 |---|---|
 | `cargo build --release`, `cargo check` | ✅ builds, 0 warnings |
@@ -24,7 +29,7 @@ as it already has, and local worktrees need `git submodule update --init`).
 | SOM TestSuite on AST interpreter | ✅ 221/221 after the block-scoping fix (`c5c7980`); before it, `HashTest>>testHashtable` failed because block activations resolved fields before the method's arguments |
 | `tests/Test*.som`, `Async/AsyncIOTest` | ✅ run and print expected output |
 | Bytecode VM (`--compile-image` / `--run-image`) | ❌ **non-functional**: `(3 + 4) println` prints `nil`; `self fib: 25` fails with "Method fib: not found in image for Integer" (wrong receiver on self-sends); `#(1 2 3) do: [...]` panics (`bytecode_interpreter.rs:459` index out of bounds); TestHarness image runs and prints nothing. Every image is ~240 KB regardless of program. |
-| `3 fooBar` (doesNotUnderstand) | ❌ prints `ERROR: Method fooBar not found in class Integer` and then **keeps running with nil** (exit code 0). Cause: `System>>signalError:` is declared `primitive` in SOM but not implemented, and unimplemented primitives silently return `nil`. |
+| `3 fooBar` (doesNotUnderstand) | ❌ *corrected:* prints `ERROR: Method fooBar not found in class Integer` and **kills the process** (`Object>>error:` ends with `system exit: 1`): no stack trace, no recovery; inside the IDE it takes the whole IDE down, inside a test binary it kills the test run. |
 | `(Array new: 3) at: 10` | ❌ silently returns `nil` |
 | `(Array new: 3) at: 10 put: 5` | ❌ Rust **panic** in `collections.rs:147` → with `panic = "abort"` in the release profile the process dies. |
 | `1/0` | ⚠️ stops the program with `Error: Division by zero`, exit 1, no stack trace, no line |
@@ -33,7 +38,7 @@ as it already has, and local worktrees need `git submodule update --init`).
 | `--gui LazyIde` | ✅ window starts and renders for 10 s with no errors, ~240 MB RSS. Interactive behaviour (browser, debugger stepping) **not verified** here — needs a manual pass. |
 
 Declared-but-unimplemented primitives (all silently return `nil` today):
-`System>>signalError:`, `System>>errorPrint:`, `System>>errorPrintln:`,
+`System>>errorPrint:`, `System>>errorPrintln:`,
 `System>>printStackTrace`, `Object>>inspect`, `Object>>instVarNamed:`,
 `Object>>perform:withArguments:inSuperclass:`, `Method>>invokeOn:with:`,
 `Primitive>>invokeOn:with:`, `Tools/File.som` `readText:` / `writeText:to:`.
@@ -44,7 +49,7 @@ Declared-but-unimplemented primitives (all silently return `nil` today):
 |---|---|---|
 | Engines | AST interpreter (`interpreter.rs`) is the only one that works. The bytecode VM (`compiler.rs` + `bytecode_interpreter.rs`) is a broken sketch (see above); its compiler also `panic!`s on nested array literals and unknown assignment targets. Primitive signature is hard-wired to the AST `Interpreter`. | Self-contained exes need a compiled engine, so the VM is effectively a **rewrite**, with the AST interpreter as the reference implementation. |
 | Primitives | A method declared `= primitive` with no Rust implementation becomes a stub returning `nil` (`universe.rs`, `assemble_method`). Primitives index `Vec`s directly and can panic. | Silent wrong results and hard aborts. Missing primitives must fail loudly at load time; primitives must never panic. |
-| Errors | `doesNotUnderstand:` → `halt` → SOM's `Object>>doesNotUnderstand:` → `error:` → unimplemented `system signalError:` → returns nil and continues. Rust-side errors are `anyhow` strings that unwind to `main`. No exceptions in the language. | Worst of both worlds: logic errors are swallowed, runtime errors kill the program without a trace. |
+| Errors | `doesNotUnderstand:` → `halt` → SOM's `Object>>doesNotUnderstand:` → `error:` → `system exit: 1` (*corrected*). Unimplemented primitives silently return nil. Rust-side errors are `anyhow` strings that unwind to `main`. No exceptions in the language. | Worst of both worlds: some failures are swallowed as nil, others kill the process without a trace. |
 | Source positions | Parser reports byte offsets only; AST has no spans. | No line numbers in errors, no breakpoints by line, no editor diagnostics. |
 | Parser | Stops at the first error. | Useless for an editor (needs error recovery for completion on half-typed code). |
 | Recursion | Rust-stack recursive evaluation, hard limit of 1000 nested dispatches (a few hundred method levels). | Real programs hit this. |
@@ -593,8 +598,9 @@ Each phase ends in something usable and keeps TestSuite + `cargo test` green.
 The AST interpreter is the oracle for the new VM, so its silent failures get fixed first:
 - Loading a class whose `primitive` method has no Rust implementation → load error
   listing the missing primitives (replaces the silent `nil` stub).
-- Implement `System>>signalError:` (stop with message + interpreter stack of
-  `Class>>selector` frames, exit 1), `errorPrint:`, `errorPrintln:`, `printStackTrace`,
+- Override `Object>>error:` natively (primitives take precedence over SOM method bodies,
+  so `SOM/` stays untouched): print message + interpreter stack of `Class>>selector`
+  frames and unwind as an error instead of `system exit: 1`. Implement `errorPrint:`, `errorPrintln:`, `printStackTrace`,
   `instVarNamed:`, `perform:withArguments:inSuperclass:`, `invokeOn:with:`.
 - Audit all primitives for panics (`at:put:` bounds, argument type assumptions) →
   return errors instead. Add a test that runs every primitive with bad arguments.
