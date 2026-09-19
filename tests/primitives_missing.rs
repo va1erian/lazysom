@@ -88,13 +88,15 @@ fn class_with_unregistered_primitive_fails_to_load() -> Result<()> {
 }
 
 #[test]
-fn system_signal_error_stops_execution_with_the_message() -> Result<()> {
+fn object_error_returns_an_err_instead_of_exiting_the_process() -> Result<()> {
+    // Upstream SOM's Object>>error: calls `system exit: 1`; it is overridden natively so the
+    // error unwinds as an Err (this test would kill the whole test binary otherwise).
     let universe = boot_universe(&[])?;
+    universe.load_class("Integer")?;
     let interpreter = Interpreter::new(&universe);
 
-    let system_val = universe.get_global("system").unwrap();
-    let result = interpreter.dispatch(system_val, "signalError:", vec![Value::new_string("boom".to_string())]);
-    let err = result.expect_err("signalError: must return an Err that unwinds the program");
+    let result = interpreter.dispatch(Value::Integer(BigInt::from(3)), "error:", vec![Value::new_string("boom".to_string())]);
+    let err = result.expect_err("error: must return an Err that unwinds the program");
     assert!(format!("{}", err).contains("boom"));
 
     Ok(())
