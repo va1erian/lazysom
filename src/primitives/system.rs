@@ -33,6 +33,12 @@ pub fn register(prims: &mut HashMap<String, fn(&Value, Vec<Value>, &Universe, &I
     prims.insert("File class>>readText:".to_string(), sys_file_read_text);
     prims.insert("File class>>writeText:to:".to_string(), sys_file_write_text);
 
+    // Upstream SOM's Object>>error: ends with `system exit: 1`, which kills the process (and
+    // the IDE, or a test binary) with no stack trace. SOM/ must not be edited, so override it
+    // natively: a registered primitive takes precedence over the SOM method body
+    // (see Universe::assemble_method). The error unwinds to the caller as an Err instead.
+    prims.insert("Object>>error:".to_string(), sys_signal_error);
+    // Not declared by upstream SOM; kept for SOM trees that route error: through it.
     prims.insert("System>>signalError:".to_string(), sys_signal_error);
     prims.insert("System>>errorPrint:".to_string(), sys_error_print);
     prims.insert("System>>errorPrintln:".to_string(), sys_error_println);
@@ -505,7 +511,7 @@ fn sys_signal_error(_: &Value, args: Vec<Value>, _: &Universe, interpreter: &Int
         None => String::new(),
     };
 
-    eprintln!("{}", msg);
+    eprintln!("ERROR: {}", msg);
     for frame in interpreter.serialize_stack() {
         eprintln!("  at {}", frame.name);
     }
