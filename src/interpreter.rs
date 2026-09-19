@@ -312,7 +312,9 @@ impl<'a> Interpreter<'a> {
                 return Ok(val.clone());
             }
 
-            if act_ref.holder.is_some() {
+            // Fields live on the method activation (the root); block activations carry the
+            // holder only for debugger display, so args/locals of outer scopes must win first.
+            if act_ref.holder.is_some() && act_ref.parent.is_none() {
                 match &act_ref.self_val {
                     Value::Object(obj) => {
                         let cls = obj.borrow().class.clone();
@@ -357,7 +359,9 @@ impl<'a> Interpreter<'a> {
             }
 
             let act_ref = act.borrow();
-            if act_ref.holder.is_some() {
+            // Fields live on the method activation (the root); block activations carry the
+            // holder only for debugger display, so args/locals of outer scopes must win first.
+            if act_ref.holder.is_some() && act_ref.parent.is_none() {
                 match &act_ref.self_val {
                     Value::Object(obj) => {
                         let cls = obj.borrow().class.clone();

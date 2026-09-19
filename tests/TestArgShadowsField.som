@@ -1,0 +1,20 @@
+TestArgShadowsField = (
+    | key |
+
+    "Arguments and locals must shadow fields of the same name, also inside nested blocks
+     (regression: HashEntry>>setKey:value: stored the field instead of the argument)."
+    readArgInBlock: key = ( ^ true ifTrue: [ [ key ] value ] )
+
+    writeArgInBlock: key = ( true ifTrue: [ key := 7 ]. ^ key )
+
+    run = (
+        key := 'field'.
+        (self readArgInBlock: 'arg') = 'arg' ifFalse: [
+            'FAIL: block read the field instead of the argument' println. system exit: 1 ].
+        (self writeArgInBlock: 1) = 7 ifFalse: [
+            'FAIL: block assignment did not target the argument' println. system exit: 1 ].
+        key = 'field' ifFalse: [
+            'FAIL: block assignment overwrote the field' println. system exit: 1 ].
+        'arg shadows field: ok' println.
+    )
+)
